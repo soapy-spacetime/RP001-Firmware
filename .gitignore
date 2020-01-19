@@ -1,3 +1,6 @@
+# Compilation Output
+Debug/*
+
 # Prerequisites
 *.d
 
