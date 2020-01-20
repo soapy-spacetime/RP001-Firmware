@@ -1,6 +1,6 @@
 # Compilation Output
-Debug/*
-
+*/Debug/*
+*/Obj/*
 # Prerequisites
 *.d
 
@@ -9,6 +9,16 @@ Debug/*
 *.ko
 *.obj
 *.elf
+
+*.pbd
+*.pbw
+*.pbi
+*.dep
+*.xcl
+*.ninja
+*.ninja_log
+*.ninja_deps
+*.browse
 
 # Linker output
 *.ilk
