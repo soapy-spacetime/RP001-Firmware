@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <settings>
     <DebugChecksum>
-        <Checksum>1610555326</Checksum>
+        <Checksum>599361628</Checksum>
     </DebugChecksum>
     <DataSample>
         <LogEnabled>0</LogEnabled>
@@ -23,22 +23,22 @@
         <LoggingEnabled>_ 0</LoggingEnabled>
         <LogFile>_ ""</LogFile>
     </TermIOLog>
-    <LogFile>
-        <LoggingEnabled>_ 0</LoggingEnabled>
-        <LogFile>_ ""</LogFile>
-        <Category>_ 0</Category>
-    </LogFile>
     <CallStack>
         <ShowArgs>0</ShowArgs>
     </CallStack>
     <Disassembly>
         <MixedMode>1</MixedMode>
     </Disassembly>
+    <LogFile>
+        <LoggingEnabled>_ 0</LoggingEnabled>
+        <LogFile>_ ""</LogFile>
+        <Category>_ 0</Category>
+    </LogFile>
     <Breakpoints>
-        <Bp0>_ "STD_CODE" "{$PROJ_DIR$\..\stm8l15x_it.c}.227.1" 1 0 0 0 "" 0 ""</Bp0>
-        <Bp1>_ "STD_CODE" "{$PROJ_DIR$\..\stm8l15x_it.c}.214.1" 1 0 0 0 "" 0 ""</Bp1>
-        <Bp2>_ "STD_CODE" "{$PROJ_DIR$\..\stm8l15x_it.c}.201.1" 1 0 0 0 "" 0 ""</Bp2>
-        <Bp3>_ "STD_CODE" "{$PROJ_DIR$\..\stm8l15x_it.c}.188.1" 1 0 0 0 "" 0 ""</Bp3>
+        <Bp0>_ "STD_CODE" "{$PROJ_DIR$\..\stm8l15x_it.c}.235.1" 1 0 0 0 "" 0 ""</Bp0>
+        <Bp1>_ "STD_CODE" "{$PROJ_DIR$\..\stm8l15x_it.c}.221.1" 1 0 0 0 "" 0 ""</Bp1>
+        <Bp2>_ "STD_CODE" "{$PROJ_DIR$\..\stm8l15x_it.c}.207.1" 1 0 0 0 "" 0 ""</Bp2>
+        <Bp3>_ "STD_CODE" "{$PROJ_DIR$\..\stm8l15x_it.c}.193.1" 1 0 0 0 "" 0 ""</Bp3>
         <Count>4</Count>
     </Breakpoints>
     <Aliases>

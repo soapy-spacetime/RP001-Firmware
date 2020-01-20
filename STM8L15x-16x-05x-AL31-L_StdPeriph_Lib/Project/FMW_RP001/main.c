@@ -27,6 +27,8 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm8l15x.h"
+#include "string.h"
+#include "RP_i2c.h"
 
 /** @addtogroup STM8L15x_StdPeriph_Template
   * @{
@@ -34,14 +36,24 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
+#define READ_BUFFER_SIZE 64
+#define WRITE_BUFFER_SIZE 256
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
+uint32_t EEAddress = 0;
+volatile uint16_t ReadLength = 0;
+volatile uint16_t WriteLength = 0;
+uint8_t ReadBuffer[READ_BUFFER_SIZE];
+uint8_t WriteBuffer[WRITE_BUFFER_SIZE];
+
 /* Private function prototypes -----------------------------------------------*/
 void initGPIO(void);
-void initI2C(void);
 void initADC(void);
 
-void writeI2C(uint8_t addr, uint8_t* data_p, uint16_t length);
+void callback_INT1(void);
+void callback_INT2(void);
+void callback_INTM(void);
+void callback_DRDY_M(void);
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -52,12 +64,18 @@ void writeI2C(uint8_t addr, uint8_t* data_p, uint16_t length);
   */
 void main(void)
 {
-  initGPIO();
-  initI2C();
-  initADC();
+  memcpy("Hello World", &WriteBuffer[0], 12);
+  WriteLength = strlen("Hello World");
+  
+  //initGPIO();
+  RP_I2C_Init();
+  //initADC();
   
   //Enable global interrupts
   enableInterrupts();
+  
+  RP_EE_WriteBuffer(EEAddress, WriteBuffer, WriteLength);
+  EEAddress += WriteLength;
   
   /* Infinite loop */
   while (1)
@@ -65,7 +83,6 @@ void main(void)
     
   }
 }
-
 
 
 void initGPIO(void){
@@ -88,32 +105,24 @@ void initGPIO(void){
   
 }
 
-
-void initI2C(void){
-  CLK_PeripheralClockConfig(CLK_Peripheral_I2C1, ENABLE);
-  I2C_Init(I2C1, 100000, 0x0F, I2C_Mode_I2C, I2C_DutyCycle_2, I2C_Ack_Disable, I2C_AcknowledgedAddress_7bit);
-  I2C_Cmd(I2C1, ENABLE);
+void callback_INT1(void)
+{
+  
 }
 
+void callback_INT2(void)
+{
+  
+}
 
-void writeI2C(uint8_t addr, uint8_t* data_p, uint16_t length){
+void callback_INTM(void)
+{
   
-  //generate start on bus
-  I2C_GenerateSTART(I2C1, ENABLE);
+}
+
+void callback_DRDY_M(void)
+{
   
-  //wait for start success event (I2C_EVENT_MASTER_MODE_SELECT)
-  
-  //send the address
-  I2C_Send7bitAddress(I2C1, addr, I2C_Direction_Transmitter);
-  
-  //wait for address acknowledge event (I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED)
-  
-  //send data to slave
-  for(uint16_t i = 0; i < length; ++i){
-    I2C_SendData(I2C1, *data_p++);
-  }
-  
-  //wait for transmission events: started (EV8) and completed (EV8_2)
 }
 
 void initADC(void){

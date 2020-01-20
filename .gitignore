@@ -1,6 +1,10 @@
 # Compilation Output
 */Debug/*
 */Obj/*
+
+#Unrelated files
+STM8L15x-16x-05x-AL31-L_StdPeriph_Lib/Project/Example_I2C/*
+
 # Prerequisites
 *.d
 
