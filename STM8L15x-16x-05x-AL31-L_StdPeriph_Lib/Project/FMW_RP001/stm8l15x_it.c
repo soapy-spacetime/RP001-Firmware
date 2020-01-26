@@ -40,10 +40,12 @@
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
 /* Public functions ----------------------------------------------------------*/
+#ifdef ENABLE_GPIO
 extern void callback_INT1(void);
 extern void callback_INT2(void);
 extern void callback_INTM(void);
 extern void callback_DRDY_M(void);
+#endif
 
 #ifdef _COSMIC_
 /**
@@ -189,8 +191,10 @@ INTERRUPT_HANDLER(EXTI2_IRQHandler,10)
     /* In order to detect unexpected events during development,
        it is recommended to set a breakpoint on the following instruction.
     */
+#ifdef ENABLE_GPIO
   callback_INT2();
   EXTI_ClearITPendingBit(EXTI_IT_Pin2);
+#endif
 }
 
 /**
@@ -203,8 +207,10 @@ INTERRUPT_HANDLER(EXTI3_IRQHandler,11)
     /* In order to detect unexpected events during development,
        it is recommended to set a breakpoint on the following instruction.
     */
+#ifdef ENABLE_GPIO
   callback_INT1();
   EXTI_ClearITPendingBit(EXTI_IT_Pin3);
+#endif
 }
 
 /**
@@ -217,8 +223,10 @@ INTERRUPT_HANDLER(EXTI4_IRQHandler,12)
     /* In order to detect unexpected events during development,
        it is recommended to set a breakpoint on the following instruction.
     */
+#ifdef ENABLE_GPIO
   callback_INTM();
   EXTI_ClearITPendingBit(EXTI_IT_Pin4);
+#endif
 }
 
 /**
@@ -231,8 +239,10 @@ INTERRUPT_HANDLER(EXTI5_IRQHandler,13)
     /* In order to detect unexpected events during development,
        it is recommended to set a breakpoint on the following instruction.
     */
+#ifdef ENABLE_GPIO
   callback_DRDY_M();
   EXTI_ClearITPendingBit(EXTI_IT_Pin5);
+#endif
 }
 
 /**

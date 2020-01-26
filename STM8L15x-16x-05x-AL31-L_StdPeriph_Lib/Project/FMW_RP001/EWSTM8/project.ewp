@@ -5054,6 +5054,9 @@
             <name>$PROJ_DIR$\..\RP_i2c.c</name>
         </file>
         <file>
+            <name>$PROJ_DIR$\..\RP_i2c.h</name>
+        </file>
+        <file>
             <name>$PROJ_DIR$\..\stm8l15x_it.c</name>
         </file>
     </group>

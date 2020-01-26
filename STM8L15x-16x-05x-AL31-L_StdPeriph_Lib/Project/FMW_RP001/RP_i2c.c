@@ -16,7 +16,7 @@
 
 /* Private variables -------------------------------------------------------------*/
 __IO uint8_t eeAddress = 0;
-__IO uint8_t accGyroAddress = 0;
+__IO uint8_t imuAddress = 0;
 __IO uint8_t magAddress = 0;
 __IO uint32_t I2C_Timeout = I2C_TIMEOUT_MAX;
 __IO uint8_t* I2C_DataRemainingPointer;
@@ -159,8 +159,607 @@ void RP_I2C_Init(void)
   I2C_DMACmd(RP_I2C, ENABLE);
 
   eeAddress = EE_SLAVE_ADDRESS;
-  accGyroAddress = ACC_GYRO_SLAVE_ADDRESS;
+  imuAddress = IMU_SLAVE_ADDRESS;
   magAddress = MAG_SLAVE_ADDRESS;
+  
+  
+  /* Initialize magnetic sensors driver interface */
+  dev_ctx_mag.write_reg = platform_write;
+  dev_ctx_mag.read_reg = platform_read;
+  dev_ctx_mag.handle = (void*)&magAddress;
+
+  /* Initialize inertial sensors (IMU) driver interface */
+  dev_ctx_imu.write_reg = platform_write;
+  dev_ctx_imu.read_reg = platform_read;
+  dev_ctx_imu.handle = (void*)&imuAddress;
+
+  /* Check device ID */
+  lsm9ds1_id_t whoamI;
+  lsm9ds1_dev_id_get(&dev_ctx_mag, &dev_ctx_imu, &whoamI);
+  if (whoamI.imu != LSM9DS1_IMU_ID || whoamI.mag != LSM9DS1_MAG_ID){
+    while(1){
+      /* manage here device not found */
+    }
+  }
+
+  /* Restore default configuration */
+  uint8_t rst;
+  lsm9ds1_dev_reset_set(&dev_ctx_mag, &dev_ctx_imu, PROPERTY_ENABLE);
+  do {
+    lsm9ds1_dev_reset_get(&dev_ctx_mag, &dev_ctx_imu, &rst);
+  } while (rst);
+
+  /* Enable Block Data Update */
+  lsm9ds1_block_data_update_set(&dev_ctx_mag, &dev_ctx_imu, PROPERTY_ENABLE);
+
+  /* Set full scale */
+  lsm9ds1_xl_full_scale_set(&dev_ctx_imu, LSM9DS1_4g);
+  lsm9ds1_gy_full_scale_set(&dev_ctx_imu, LSM9DS1_2000dps);
+  lsm9ds1_mag_full_scale_set(&dev_ctx_mag, LSM9DS1_16Ga);
+
+  /* Configure filtering chain - See datasheet for filtering chain details */
+  /* Accelerometer filtering chain */
+  lsm9ds1_xl_filter_aalias_bandwidth_set(&dev_ctx_imu, LSM9DS1_AUTO);
+  lsm9ds1_xl_filter_lp_bandwidth_set(&dev_ctx_imu, LSM9DS1_LP_ODR_DIV_50);
+  lsm9ds1_xl_filter_out_path_set(&dev_ctx_imu, LSM9DS1_LP_OUT);
+  /* Gyroscope filtering chain */
+  lsm9ds1_gy_filter_lp_bandwidth_set(&dev_ctx_imu, LSM9DS1_LP_ULTRA_LIGHT);
+  lsm9ds1_gy_filter_hp_bandwidth_set(&dev_ctx_imu, LSM9DS1_HP_MEDIUM);
+  lsm9ds1_gy_filter_out_path_set(&dev_ctx_imu, LSM9DS1_LPF1_HPF_LPF2_OUT);
+
+  /* Set Output Data Rate / Power mode */
+  lsm9ds1_imu_data_rate_set(&dev_ctx_imu, LSM9DS1_IMU_59Hz5);
+  lsm9ds1_mag_data_rate_set(&dev_ctx_mag, LSM9DS1_MAG_UHP_10Hz);
+
+}
+
+/**
+  * @brief  Device status register.[get]
+  *
+  * @param  ctx_mag   Read / write magnetometer interface definitions.(ptr)
+  * @param  ctx_imu   Read / write imu interface definitions.(ptr)
+  * @param  val       Device status registers.(ptr)
+  * @retval           Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_dev_status_get(stmdev_ctx_t *ctx_mag, stmdev_ctx_t *ctx_imu,
+                               lsm9ds1_status_t *val)
+{
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx_imu, LSM9DS1_STATUS_REG,
+                         (uint8_t*)&(val->status_imu), 1);
+  if(ret == 0){
+    ret = lsm9ds1_read_reg(ctx_mag, LSM9DS1_STATUS_REG_M,
+                           (uint8_t*)&(val->status_mag), 1);
+  }
+
+  return ret;
+}
+
+/**
+  * @brief  Magnetometer data rate selection.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "fast_odr" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_mag_data_rate_set(stmdev_ctx_t *ctx,
+                                  lsm9ds1_mag_data_rate_t val)
+{
+  lsm9ds1_ctrl_reg1_m_t ctrl_reg1_m;
+  lsm9ds1_ctrl_reg3_m_t ctrl_reg3_m;
+  lsm9ds1_ctrl_reg4_m_t ctrl_reg4_m;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG1_M, (uint8_t*)&ctrl_reg1_m, 1);
+  if(ret == 0){
+    ctrl_reg1_m.fast_odr = (((uint8_t)val & 0x08U) >> 3);
+    ctrl_reg1_m._do = ((uint8_t)val & 0x07U);
+    ctrl_reg1_m.om = (((uint8_t)val & 0x30U) >> 4);
+    ctrl_reg1_m.temp_comp = PROPERTY_ENABLE;
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG1_M,
+                            (uint8_t*)&ctrl_reg1_m, 1);
+  }
+  if(ret == 0){
+    ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG3_M,
+                           (uint8_t*)&ctrl_reg3_m, 1);
+  }
+  if(ret == 0){
+    ctrl_reg3_m.md = (((uint8_t)val & 0xC0U) >> 6);
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG3_M,
+                            (uint8_t*)&ctrl_reg3_m, 1);
+  }
+  if(ret == 0){
+    ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG4_M, (uint8_t*)&ctrl_reg4_m, 1);
+  }
+  if(ret == 0){
+    ctrl_reg4_m.omz = (((uint8_t)val & 0x30U) >> 4);;
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG4_M,
+                            (uint8_t*)&ctrl_reg4_m, 1);
+  }
+  return ret;
+}
+
+/**
+  * @brief  Data rate selection when both the accelerometer and gyroscope
+  *         are activated.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "odr_g" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_imu_data_rate_set(stmdev_ctx_t *ctx, lsm9ds1_imu_odr_t val)
+{
+  lsm9ds1_ctrl_reg1_g_t ctrl_reg1_g;
+  lsm9ds1_ctrl_reg6_xl_t ctrl_reg6_xl;
+  lsm9ds1_ctrl_reg3_g_t ctrl_reg3_g;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG1_G, (uint8_t*)&ctrl_reg1_g, 1);
+  if(ret == 0){
+    ctrl_reg1_g.odr_g = (uint8_t)val & 0x07U;
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG1_G,
+                            (uint8_t*)&ctrl_reg1_g, 1);
+  }
+  if(ret == 0){
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG6_XL,
+                         (uint8_t*)&ctrl_reg6_xl, 1);
+  }
+  if(ret == 0){
+    ctrl_reg6_xl.odr_xl = (((uint8_t)val & 0x70U) >> 4);
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG6_XL,
+                            (uint8_t*)&ctrl_reg6_xl, 1);
+  }
+  if(ret == 0){
+    ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG3_G,
+                           (uint8_t*)&ctrl_reg3_g, 1);
+  }
+  if(ret == 0){
+    ctrl_reg3_g.lp_mode = (((uint8_t)val & 0x80U) >> 7);
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG3_G,
+                            (uint8_t*)&ctrl_reg3_g, 1);
+  }
+
+  return ret;
+}
+
+/**
+  * @brief  Gyro output filter path configuration.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "out_sel" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_gy_filter_out_path_set(stmdev_ctx_t *ctx,
+                                       lsm9ds1_gy_out_path_t val)
+{
+  lsm9ds1_ctrl_reg2_g_t ctrl_reg2_g;
+  lsm9ds1_ctrl_reg3_g_t ctrl_reg3_g;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG2_G,
+                         (uint8_t*)&ctrl_reg2_g, 1);
+  if(ret == 0){
+    ctrl_reg2_g.out_sel = ((uint8_t)val & 0x03U);
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG2_G,
+                            (uint8_t*)&ctrl_reg2_g, 1);
+  }
+  if(ret == 0){
+    ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG3_G,
+                           (uint8_t*)&ctrl_reg3_g, 1);
+  }
+  if(ret == 0){
+    ctrl_reg3_g.hp_en = (((uint8_t)val & 0x10U) >> 4 );
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG3_G,
+                            (uint8_t*)&ctrl_reg3_g, 1);
+  }
+
+  return ret;
+}
+
+/**
+  * @brief  Gyroscope high-pass filter bandwidth selection.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "hpcf_g" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_gy_filter_hp_bandwidth_set(stmdev_ctx_t *ctx,
+                                           lsm9ds1_gy_hp_bw_t val)
+{
+  lsm9ds1_ctrl_reg3_g_t ctrl_reg3_g;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG3_G, (uint8_t*)&ctrl_reg3_g, 1);
+  if(ret == 0){
+    ctrl_reg3_g.hpcf_g = (uint8_t)val;
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG3_G,
+                            (uint8_t*)&ctrl_reg3_g, 1);
+  }
+  return ret;
+}
+
+/**
+  * @brief  Gyroscope lowpass filter bandwidth selection.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "bw_g" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_gy_filter_lp_bandwidth_set(stmdev_ctx_t *ctx,
+                                           lsm9ds1_gy_lp_bw_t val)
+{
+  lsm9ds1_ctrl_reg1_g_t ctrl_reg1_g;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG1_G, (uint8_t*)&ctrl_reg1_g, 1);
+  if(ret == 0){
+    ctrl_reg1_g.bw_g = (uint8_t)val;
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG1_G,
+                            (uint8_t*)&ctrl_reg1_g, 1);
+  }
+  return ret;
+}
+
+/**
+  * @brief  Accelerometer output filter path configuration.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "fds" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_xl_filter_out_path_set(stmdev_ctx_t *ctx,
+                                       lsm9ds1_xl_out_path_t val)
+{
+  lsm9ds1_ctrl_reg7_xl_t ctrl_reg7_xl;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG7_XL,
+                         (uint8_t*)&ctrl_reg7_xl, 1);
+  if(ret == 0){
+    ctrl_reg7_xl.fds = (uint8_t)val;
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG7_XL,
+                            (uint8_t*)&ctrl_reg7_xl, 1);
+  }
+  return ret;
+}
+
+/**
+  * @brief  Accelerometer digital filter low pass cutoff frequency
+  *         selection.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "dcf" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_xl_filter_lp_bandwidth_set(stmdev_ctx_t *ctx,
+                                           lsm9ds1_xl_lp_bw_t val)
+{
+  lsm9ds1_ctrl_reg7_xl_t ctrl_reg7_xl;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG7_XL,
+                         (uint8_t*)&ctrl_reg7_xl, 1);
+  if(ret == 0){
+    ctrl_reg7_xl.hr = ((uint8_t)val & 0x10U) >> 4;
+    ctrl_reg7_xl.dcf = ((uint8_t)val & 0x03U);
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG7_XL,
+                            (uint8_t*)&ctrl_reg7_xl, 1);
+  }
+  return ret;
+}
+
+/**
+  * @brief  Configure accelerometer anti aliasing filter.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "bw_xl" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_xl_filter_aalias_bandwidth_set(stmdev_ctx_t *ctx,
+                                               lsm9ds1_xl_aa_bw_t val)
+{
+  lsm9ds1_ctrl_reg6_xl_t ctrl_reg6_xl;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG6_XL,
+                         (uint8_t*)&ctrl_reg6_xl, 1);
+  if(ret == 0){
+    ctrl_reg6_xl.bw_xl = ((uint8_t)val & 0x03U);
+    ctrl_reg6_xl.bw_scal_odr = (((uint8_t)val & 0x10U) >> 4 );
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG6_XL,
+                            (uint8_t*)&ctrl_reg6_xl, 1);
+  }
+  return ret;
+}
+
+/**
+  * @brief  Magnetometer full Scale Selection.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "fs" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_mag_full_scale_set(stmdev_ctx_t *ctx, lsm9ds1_mag_fs_t val)
+{
+  lsm9ds1_ctrl_reg2_m_t ctrl_reg2_m;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG2_M, (uint8_t*)&ctrl_reg2_m, 1);
+  if(ret == 0){
+    ctrl_reg2_m.fs = (uint8_t)val;
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG2_M,
+                            (uint8_t*)&ctrl_reg2_m, 1);
+  }
+  return ret;
+}
+
+/**
+  * @brief  Gyroscope full-scale selection.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "fs_g" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_gy_full_scale_set(stmdev_ctx_t *ctx, lsm9ds1_gy_fs_t val)
+{
+  lsm9ds1_ctrl_reg1_g_t ctrl_reg1_g;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG1_G, (uint8_t*)&ctrl_reg1_g, 1);
+  if(ret == 0){
+    ctrl_reg1_g.fs_g = (uint8_t)val;
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG1_G,
+                            (uint8_t*)&ctrl_reg1_g, 1);
+  }
+  return ret;
+}
+
+/**
+  * @brief  Accelerometer full-scale selection.[set]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  val    Change the values of "fs_xl" in reg LSM9DS1.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_xl_full_scale_set(stmdev_ctx_t *ctx, lsm9ds1_xl_fs_t val)
+{
+  lsm9ds1_ctrl_reg6_xl_t ctrl_reg6_xl;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_CTRL_REG6_XL,
+                         (uint8_t*)&ctrl_reg6_xl, 1);
+  if(ret == 0){
+    ctrl_reg6_xl.fs_xl = (uint8_t)val;
+    ret = lsm9ds1_write_reg(ctx, LSM9DS1_CTRL_REG6_XL,
+                            (uint8_t*)&ctrl_reg6_xl, 1);
+  }
+  return ret;
+}
+
+/**
+  * @brief  Blockdataupdate.[set]
+  *
+  * @param  ctx_mag   Read / write magnetometer interface definitions.(ptr)
+  * @param  ctx_imu   Read / write imu interface definitions.(ptr)
+  * @param  val       Change the values of bdu in reg CTRL_REG8.
+  * @retval           Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_block_data_update_set(stmdev_ctx_t *ctx_mag,
+                                      stmdev_ctx_t *ctx_imu, uint8_t val)
+{
+  lsm9ds1_ctrl_reg8_t ctrl_reg8;
+  lsm9ds1_ctrl_reg5_m_t ctrl_reg5_m;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx_imu, LSM9DS1_CTRL_REG8, (uint8_t*)&ctrl_reg8, 1);
+  if(ret == 0){
+    ctrl_reg8.bdu = (uint8_t)val;
+    ret = lsm9ds1_write_reg(ctx_imu, LSM9DS1_CTRL_REG8, (uint8_t*)&ctrl_reg8, 1);
+  }
+  if(ret == 0){
+    ret = lsm9ds1_read_reg(ctx_mag, LSM9DS1_CTRL_REG5_M,
+                           (uint8_t*)&ctrl_reg5_m, 1);
+  }
+  if(ret == 0){
+    ctrl_reg5_m.fast_read = (uint8_t)(~val);
+    ctrl_reg5_m.bdu = (uint8_t)val;
+    ret = lsm9ds1_write_reg(ctx_mag, LSM9DS1_CTRL_REG5_M,
+                            (uint8_t*)&ctrl_reg5_m, 1);
+  }
+
+  return ret;
+}
+
+/**
+  * @brief  Software reset. Restore the default values in user registers.[set]
+  *
+  * @param  ctx_mag   Read / write magnetometer interface definitions.(ptr)
+  * @param  ctx_imu   Read / write imu interface definitions.(ptr)
+  * @param  val    Change the values of sw_reset in reg CTRL_REG8.
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_dev_reset_set(stmdev_ctx_t *ctx_mag, stmdev_ctx_t *ctx_imu,
+                              uint8_t val)
+{
+  lsm9ds1_ctrl_reg2_m_t ctrl_reg2_m;
+  lsm9ds1_ctrl_reg8_t ctrl_reg8;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx_imu, LSM9DS1_CTRL_REG8, (uint8_t*)&ctrl_reg8, 1);
+  if(ret == 0){
+    ctrl_reg8.sw_reset = (uint8_t)val;
+    ret = lsm9ds1_write_reg(ctx_imu, LSM9DS1_CTRL_REG8,
+                            (uint8_t*)&ctrl_reg8, 1);
+  }
+  if(ret == 0){
+    ret = lsm9ds1_read_reg(ctx_mag, LSM9DS1_CTRL_REG2_M,
+                           (uint8_t*)&ctrl_reg2_m, 1);
+  }
+  if(ret == 0){
+    ctrl_reg2_m.soft_rst = (uint8_t)val;
+    ret = lsm9ds1_write_reg(ctx_mag, LSM9DS1_CTRL_REG2_M,
+                            (uint8_t*)&ctrl_reg2_m, 1);
+  }
+
+  return ret;
+}
+
+/**
+  * @brief  Software reset. Restore the default values in user registers.[get]
+  *
+  * @param  ctx_mag   Read / write magnetometer interface definitions.(ptr)
+  * @param  ctx_imu   Read / write imu interface definitions.(ptr)
+  * @param  val       Get the values of sw_reset in reg CTRL_REG8.(ptr)
+  * @retval           Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_dev_reset_get(stmdev_ctx_t *ctx_mag, stmdev_ctx_t *ctx_imu,
+                              uint8_t *val)
+{
+  lsm9ds1_ctrl_reg2_m_t ctrl_reg2_m;
+  lsm9ds1_ctrl_reg8_t ctrl_reg8;
+  int32_t ret;
+
+  ret = lsm9ds1_read_reg(ctx_imu, LSM9DS1_CTRL_REG8, (uint8_t*)&ctrl_reg8, 1);
+  if(ret == 0){
+    ret = lsm9ds1_read_reg(ctx_mag, LSM9DS1_CTRL_REG2_M,
+                           (uint8_t*)&ctrl_reg2_m, 1);
+    *val = (uint8_t)(ctrl_reg2_m.soft_rst & ctrl_reg8.sw_reset);
+  }
+  return ret;
+}
+
+/**
+  * @brief  DeviceWhoamI.[get]
+  *
+  * @param  ctx_mag   Read / write magnetometer interface definitions.(ptr)
+  * @param  ctx_imu   Read / write imu interface definitions.(ptr)
+  * @param  buff      Buffer that stores the data read.(ptr)
+  * @retval           Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_dev_id_get(stmdev_ctx_t *ctx_mag, stmdev_ctx_t *ctx_imu,
+                           lsm9ds1_id_t *buff)
+{
+  int32_t ret;
+  ret = lsm9ds1_read_reg(ctx_imu, LSM9DS1_WHO_AM_I,
+                         (uint8_t*)&(buff->imu), 1);
+  if(ret == 0){
+    ret = lsm9ds1_read_reg(ctx_mag, LSM9DS1_WHO_AM_I_M,
+                           (uint8_t*)&(buff->mag), 1);
+  }
+  return ret;
+}
+
+/**
+  * @brief  Angular rate sensor. The value is expressed as a 16-bit word in
+  *         two’s complement.[get]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  buff   Buffer that stores the data read.(ptr)
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_angular_rate_raw_get(stmdev_ctx_t *ctx, uint8_t *buff)
+{
+  int32_t ret;
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_OUT_X_L_G, buff, 6);
+  return ret;
+}
+
+/**
+  * @brief  Linear acceleration output register. The value is expressed as
+  *         a 16-bit word in two’s complement.[get]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  buff   Buffer that stores the data read.(ptr)
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_acceleration_raw_get(stmdev_ctx_t *ctx, uint8_t *buff)
+{
+  int32_t ret;
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_OUT_X_L_XL, buff, 6);
+  return ret;
+}
+
+/**
+  * @brief  Magnetic sensor. The value is expressed as a 16-bit word in
+  *         two’s complement.[get]
+  *
+  * @param  ctx    Read / write interface definitions.(ptr)
+  * @param  buff   Buffer that stores the data read.(ptr)
+  * @retval        Interface status (MANDATORY: return 0 -> no Error).
+  *
+  */
+int32_t lsm9ds1_magnetic_raw_get(stmdev_ctx_t *ctx, uint8_t *buff)
+{
+  int32_t ret;
+  ret = lsm9ds1_read_reg(ctx, LSM9DS1_OUT_X_L_M, buff, 6);
+  return ret;
+}
+
+/**
+ * @brief  Write generic device register (platform dependent)
+ *
+ * @param  handle    customizable argument. In this examples is used in
+ *                   order to select the correct sensor I2C address.
+ * @param  reg       register to write
+ * @param  bufp      pointer to data to write in register reg
+ * @param  len       number of consecutive register to write
+ *
+ */
+static int32_t platform_write(void *handle, uint8_t reg, uint8_t *bufp,
+                              uint16_t len)
+{
+  uint8_t *i2c_address = handle;
+  uint8_t length;
+  do{
+    length  = (uint8_t) len;
+    RP_I2C_GenericWrite(*i2c_address, (uint16_t)reg, FALSE, bufp, &length);
+    RP_I2C_WaitForOperationComplete(I2C_TIMEOUT_MAX);
+    len -= length;
+  }while(len > 0);
+  return 0;
+}
+
+/**
+ * @brief  Read generic device register (platform dependent)
+ *
+ * @param  handle    customizable argument. In this examples is used in
+ *                   order to select the correct sensor I2C address.
+ * @param  reg       register to read
+ * @param  bufp      pointer to buffer that store the data read
+ * @param  len       number of consecutive register to read
+ *
+ */
+static int32_t platform_read(void *handle, uint8_t reg, uint8_t *bufp,
+                             uint16_t len)
+{
+  uint8_t *i2c_address = handle;
+  uint8_t length;
+  do{
+    length  = (uint8_t) len;
+    RP_I2C_GenericRead(*i2c_address, (uint16_t)reg, FALSE, bufp, &length);
+    RP_I2C_WaitForOperationComplete(I2C_TIMEOUT_MAX);
+    len -= length;
+  }while(len > 0);
+  return 0;
 }
 
 /**
@@ -468,7 +1067,7 @@ void RP_EE_WriteByte(uint32_t WriteAddr, uint8_t Buffer)
   *
   * @retval None
   */
-inline void RP_EE_ReadBuffer(uint32_t ReadAddr, uint8_t* pBuffer, volatile uint8_t* pLength)
+void RP_EE_ReadBuffer(uint32_t ReadAddr, uint8_t* pBuffer, volatile uint8_t* pLength)
 {
   eeAddress = EE_ADDRESS(ReadAddr);
   RP_I2C_GenericRead(eeAddress, (uint16_t)ReadAddr, TRUE, pBuffer, pLength);

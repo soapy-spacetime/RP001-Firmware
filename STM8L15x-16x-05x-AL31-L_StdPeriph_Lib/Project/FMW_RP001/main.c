@@ -36,24 +36,42 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
+//#define ENABLE_GPIO
+//#define ENABLE_ADC
+
 #define READ_BUFFER_SIZE 64
 #define WRITE_BUFFER_SIZE 256
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
-uint32_t EEAddress = 0;
+static uint32_t EEAddress = 0;
 volatile uint16_t ReadLength = 0;
 volatile uint16_t WriteLength = 0;
-uint8_t ReadBuffer[READ_BUFFER_SIZE];
-uint8_t WriteBuffer[WRITE_BUFFER_SIZE];
+static uint8_t ReadBuffer[READ_BUFFER_SIZE];
+static uint8_t WriteBuffer[WRITE_BUFFER_SIZE];
+
+static lsm9ds1_status_t status;
+static axis3bit16_t data_raw_acceleration;
+static axis3bit16_t data_raw_angular_rate;
+static axis3bit16_t data_raw_magnetic_field;
+
+stmdev_ctx_t dev_ctx_mag;
+stmdev_ctx_t dev_ctx_imu;
 
 /* Private function prototypes -----------------------------------------------*/
+#ifdef ENABLE_GPIO
 void initGPIO(void);
-void initADC(void);
+#endif
 
+#ifdef ENABLE_ADC
+void initADC(void);
+#endif
+
+#ifdef ENABLE_GPIO
 void callback_INT1(void);
 void callback_INT2(void);
 void callback_INTM(void);
 void callback_DRDY_M(void);
+#endif
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -67,9 +85,13 @@ void main(void)
   memcpy("Hello World", &WriteBuffer[0], 12);
   WriteLength = strlen("Hello World");
   
-  //initGPIO();
+#ifdef ENABLE_GPIO
+  initGPIO();
+#endif
+#ifdef ENABLE_ADC
+  initADC();
+#endif
   RP_I2C_Init();
-  //initADC();
   
   //Enable global interrupts
   enableInterrupts();
@@ -77,14 +99,37 @@ void main(void)
   RP_EE_WriteBuffer(EEAddress, WriteBuffer, WriteLength);
   EEAddress += WriteLength;
   
+  RP_EE_ReadBuffer(0, ReadBuffer, EEAddress);
+  while(1); //Check that write & read were successful
+  
   /* Infinite loop */
   while (1)
   {
-    
+    /* Read IMU device status register */
+    lsm9ds1_dev_status_get(&dev_ctx_mag, &dev_ctx_imu, &status);
+
+    if ( status.status_imu.xlda && status.status_imu.gda && status.status_mag.zyxda)
+    {
+      /* Read imu data */
+      memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
+      memset(data_raw_angular_rate.u8bit, 0x00, 3 * sizeof(int16_t));
+
+      lsm9ds1_acceleration_raw_get(&dev_ctx_imu, data_raw_acceleration.u8bit);
+      lsm9ds1_angular_rate_raw_get(&dev_ctx_imu, data_raw_angular_rate.u8bit);
+
+      /* Read magnetometer data */
+      memset(data_raw_magnetic_field.u8bit, 0x00, 3 * sizeof(int16_t));
+
+      lsm9ds1_magnetic_raw_get(&dev_ctx_mag, data_raw_magnetic_field.u8bit);
+
+      /* Store timestamp */
+      /* Store imu data */
+      /* Store magnetometer data */
+    }
   }
 }
 
-
+#ifdef ENABLE_GPIO
 void initGPIO(void){
   GPIO_Init(GPIOD, GPIO_Pin_0, GPIO_Mode_In_FL_No_IT); //TP1
   GPIO_Init(GPIOA, GPIO_Pin_3, GPIO_Mode_In_FL_No_IT); //TP2
@@ -124,11 +169,13 @@ void callback_DRDY_M(void)
 {
   
 }
+#endif
 
+#ifdef ENABLE_ADC
 void initADC(void){
   ADC_Init(ADC1, ADC_ConversionMode_Single, ADC_Resolution_12Bit, ADC_Prescaler_1);
 }
-
+#endif
 
 
 #ifdef  USE_FULL_ASSERT
