@@ -1,47 +1,30 @@
-/**
-  ******************************************************************************
-  * @file    Project/STM8L15x_StdPeriph_Template/main.c
-  * @author  MCD Application Team
-  * @version V1.6.1
-  * @date    30-September-2014
-  * @brief   Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * <h2><center>&copy; COPYRIGHT 2014 STMicroelectronics</center></h2>
-  *
-  * Licensed under MCD-ST Liberty SW License Agreement V2, (the "License");
-  * You may not use this file except in compliance with the License.
-  * You may obtain a copy of the License at:
-  *
-  *        http://www.st.com/software_license_agreement_liberty_v2
-  *
-  * Unless required by applicable law or agreed to in writing, software 
-  * distributed under the License is distributed on an "AS IS" BASIS, 
-  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  * See the License for the specific language governing permissions and
-  * limitations under the License.
-  *
-  ******************************************************************************
-  */
-
 /* Includes ------------------------------------------------------------------*/
 #include "stm8l15x.h"
 #include "string.h"
 #include "RP_i2c.h"
 
-/** @addtogroup STM8L15x_StdPeriph_Template
-  * @{
-  */
+#include "stm8_eval_i2c_ee.h"
 
-/* Private typedef -----------------------------------------------------------*/
+
 /* Private define ------------------------------------------------------------*/
 //#define ENABLE_GPIO
 //#define ENABLE_ADC
-
 #define READ_BUFFER_SIZE 64
-#define WRITE_BUFFER_SIZE 256
+#define WRITE_BUFFER_SIZE 64
+#define DATAPOINT_SIZE 20
 /* Private macro -------------------------------------------------------------*/
+#define DATAPOINT_HANDLE(dp, field) ((uint8_t *)(dp.fmt.field))
+
+/* Private typedef -----------------------------------------------------------*/
+typedef union{
+  uint8_t bytes[DATAPOINT_SIZE];
+  struct {
+    uint16_t time;
+    int16_t acc[3];
+    int16_t ang[3];
+    int16_t mag[3];
+  } fmt;
+}datapoint_t;
 /* Private variables ---------------------------------------------------------*/
 static uint32_t EEAddress = 0;
 volatile uint16_t ReadLength = 0;
@@ -50,9 +33,7 @@ static uint8_t ReadBuffer[READ_BUFFER_SIZE];
 static uint8_t WriteBuffer[WRITE_BUFFER_SIZE];
 
 static lsm9ds1_status_t status;
-static axis3bit16_t data_raw_acceleration;
-static axis3bit16_t data_raw_angular_rate;
-static axis3bit16_t data_raw_magnetic_field;
+datapoint_t datapoint;
 
 stmdev_ctx_t dev_ctx_mag;
 stmdev_ctx_t dev_ctx_imu;
@@ -82,7 +63,17 @@ void callback_DRDY_M(void);
   */
 void main(void)
 {
-  memcpy("Hello World", &WriteBuffer[0], 12);
+  /* ----- Initialize System Clocks ----- */
+  /* Select HSI (16MHz) as system clock source */
+  CLK_SYSCLKSourceSwitchCmd(ENABLE);
+  CLK_SYSCLKSourceConfig(CLK_SYSCLKSource_HSI);
+  /* High speed internal clock prescaler: 1 */
+  CLK_SYSCLKDivConfig(CLK_SYSCLKDiv_1);
+
+  while (CLK_GetSYSCLKSource() != CLK_SYSCLKSource_HSI)
+  {}
+  
+  memcpy(&WriteBuffer[0], "Hello World", 12);
   WriteLength = strlen("Hello World");
   
 #ifdef ENABLE_GPIO
@@ -91,16 +82,34 @@ void main(void)
 #ifdef ENABLE_ADC
   initADC();
 #endif
-  RP_I2C_Init();
+  if(RP_I2C_Init() == RP_I2C_FAILURE){
+    while(1); // Bus is hanging
+  }
   
   //Enable global interrupts
   enableInterrupts();
   
-  RP_EE_WriteBuffer(EEAddress, WriteBuffer, WriteLength);
-  EEAddress += WriteLength;
+  uint8_t len = 11;
   
-  RP_EE_ReadBuffer(0, ReadBuffer, EEAddress);
-  while(1); //Check that write & read were successful
+  if(RP_EE_WaitEepromStandbyState() == RP_I2C_SUCCESS){
+    if(RP_EE_WriteBuffer(EEAddress, WriteBuffer, WriteLength) == RP_I2C_SUCCESS){
+      EEAddress += WriteLength;
+      
+      if(RP_EE_ReadBuffer(0, ReadBuffer, &len) == RP_I2C_SUCCESS){
+        RP_I2C_WaitForOperationComplete(0);
+        while(1); //Double check that write & read were successful
+      } else{
+        //the read failed
+        while(1);
+      }
+    } else{
+      //the write failed
+      while(1);
+    }
+  }else{
+    //the status check failed
+    while(1);
+  }
   
   /* Infinite loop */
   while (1)
@@ -110,21 +119,19 @@ void main(void)
 
     if ( status.status_imu.xlda && status.status_imu.gda && status.status_mag.zyxda)
     {
-      /* Read imu data */
-      memset(data_raw_acceleration.u8bit, 0x00, 3 * sizeof(int16_t));
-      memset(data_raw_angular_rate.u8bit, 0x00, 3 * sizeof(int16_t));
+      /* Read data */
+      memset(datapoint.bytes, 0x00, DATAPOINT_SIZE);
 
-      lsm9ds1_acceleration_raw_get(&dev_ctx_imu, data_raw_acceleration.u8bit);
-      lsm9ds1_angular_rate_raw_get(&dev_ctx_imu, data_raw_angular_rate.u8bit);
-
-      /* Read magnetometer data */
-      memset(data_raw_magnetic_field.u8bit, 0x00, 3 * sizeof(int16_t));
-
-      lsm9ds1_magnetic_raw_get(&dev_ctx_mag, data_raw_magnetic_field.u8bit);
+      lsm9ds1_acceleration_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,acc));
+      lsm9ds1_angular_rate_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,ang));
+      lsm9ds1_magnetic_raw_get(&dev_ctx_mag, DATAPOINT_HANDLE(datapoint,mag));
 
       /* Store timestamp */
-      /* Store imu data */
-      /* Store magnetometer data */
+      datapoint.fmt.time += 1;
+      /* Store data */
+      RP_EE_WriteBuffer(EEAddress, datapoint.bytes, DATAPOINT_SIZE);
+      RP_I2C_WaitForOperationComplete(RP_I2C_TIMEOUT_MAX);
+      EEAddress += DATAPOINT_SIZE;
     }
   }
 }
@@ -187,7 +194,7 @@ void initADC(void){
   * @param  line: assert_param error line source number
   * @retval None
   */
-void assert_failed(uint8_t* file, uint32_t line)
+void assert_failed(void)
 { 
   /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
@@ -198,10 +205,9 @@ void assert_failed(uint8_t* file, uint32_t line)
     
   }
 }
+
+void log(char* msg){
+  //strcpy(WriteBuffer, msg);
+}
 #endif
 
-/**
-  * @}
-  */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

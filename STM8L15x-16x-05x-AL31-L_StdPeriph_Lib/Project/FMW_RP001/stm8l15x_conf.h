@@ -66,7 +66,7 @@
 /* Exported constants --------------------------------------------------------*/
 /* Uncomment the line below to expanse the "assert_param" macro in the 
    Standard Peripheral Library drivers code */
-/* #define USE_FULL_ASSERT    (1) */ 
+#define USE_FULL_ASSERT    (1) 
 
 /* Exported macro ------------------------------------------------------------*/
 #ifdef  USE_FULL_ASSERT
@@ -79,12 +79,14 @@
   *   If expr is true, it returns no value.
   * @retval : None
   */
-  #define assert_param(expr) ((expr) ? (void)0 : assert_failed((uint8_t *)__FILE__, __LINE__))
+  #define assert_param(expr) ((expr) ? (void)0 : assert_failed())
 /* Exported functions ------------------------------------------------------- */
-  void assert_failed(uint8_t* file, uint32_t line);
+  void assert_failed(void);
 #else
   #define assert_param(expr) ((void)0)
 #endif /* USE_FULL_ASSERT */
+  
+ void log(char* msg);
 
 #endif /* __STM8L15x_CONF_H */
 

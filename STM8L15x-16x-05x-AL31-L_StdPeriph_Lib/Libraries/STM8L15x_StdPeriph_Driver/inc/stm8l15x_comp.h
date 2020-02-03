@@ -153,7 +153,7 @@ typedef enum
 #define IS_COMP_TRIGGERGROUP(TRIGGERGROUP) (((TRIGGERGROUP) == COMP_TriggerGroup_NonInvertingInput) || \
                                             ((TRIGGERGROUP) == COMP_TriggerGroup_InvertingInput) || \
                                             ((TRIGGERGROUP) == COMP_TriggerGroup_VREFINTOutput) || \
-                                            ((TRIGGERGROUP) == COMP_TriggerGroup_DACOutput)
+                                            ((TRIGGERGROUP) == COMP_TriggerGroup_DACOutput))
 /**
   * @}
   */

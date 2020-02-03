@@ -12,11 +12,11 @@ typedef enum {EE_STATE_READY, EE_STATE_BUSY} EE_STATE;
 /* Private define ------------------------------------------------------------*/
   
 #define EE_SLAVE_ADDRESS     0xA0
-#define IMU_SLAVE_ADDRESS 0xD5 //or D4?
+#define IMU_SLAVE_ADDRESS 0xD4 //or D4?
 #define MAG_SLAVE_ADDRESS 0x38
 #define OWN_SLAVE_ADDRESS    0xF0
 
-#define I2C_SPEED          200000
+#define RP_I2C_SPEED          100000
 
 #define EE_PAGESIZE    128 //actually 256, but the DMA can't handle that
  
@@ -28,8 +28,9 @@ typedef enum {EE_STATE_READY, EE_STATE_BUSY} EE_STATE;
 /* Maximum timeout value for counting before exiting waiting loop on DMA 
    Trasnfer Complete. This value depends directly on the maximum page size and
    the sytem clock frequency. */
-#define I2C_TIMEOUT_MAX         0x10000
-
+#define RP_I2C_TIMEOUT_MAX         0x10000 
+#define RP_I2C_SUCCESS             FALSE // i.e. no error
+#define RP_I2C_FAILURE             TRUE  // i.e. error
 
 /**
   * @brief  I2C Interface pins
@@ -52,18 +53,20 @@ typedef enum {EE_STATE_READY, EE_STATE_BUSY} EE_STATE;
   
 /* Public Functions -------------------------------------------------------------*/
 void RP_I2C_DeInit(void);
-void RP_I2C_Init(void);
-void RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2Bytes, uint8_t* pBuffer,  volatile uint8_t* pLength);
-void RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t* pBuffer, volatile uint8_t* pLength);
+bool RP_I2C_Init(void);
+bool RP_I2C_WaitForEvent(I2C_TypeDef* I2Cx, I2C_Event_TypeDef I2C_Event);
+bool RP_I2C_WaitWhileFlag(I2C_TypeDef* I2Cx, I2C_FLAG_TypeDef I2C_Flag, bool flagState);
+bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2Bytes, uint8_t* pBuffer,  volatile uint8_t* pLength);
+bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t* pBuffer, volatile uint8_t* pLength);
 void RP_I2C_GenericWriteByte(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t Buffer);
 bool RP_I2C_WaitForOperationComplete(uint32_t timout);
 void RP_I2C_DMA_RX_IRQHandler(void);
 void RP_I2C_DMA_TX_IRQHandler(void);
 
 void RP_EE_WriteByte(uint32_t WriteAddr, uint8_t Buffer);
-void RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint8_t Length);
-void RP_EE_ReadBuffer(uint32_t ReadAddr, uint8_t* pBuffer, volatile uint8_t* pLength);
-void RP_EE_WaitEepromStandbyState(void);
+bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint8_t Length);
+bool RP_EE_ReadBuffer(uint32_t ReadAddr, uint8_t* pBuffer, volatile uint8_t* pLength);
+bool RP_EE_WaitEepromStandbyState(void);
 
 
 /* IMU/MAG Typedefs -------------------------------------------------------------*/
@@ -527,6 +530,22 @@ typedef enum {
   LSM9DS1_HP_LIGHT         = 8,
   LSM9DS1_HP_ULTRA_LIGHT   = 9,
 } lsm9ds1_gy_hp_bw_t;
+/*
+  High-pass filter cutoff frequency settings
+		-------------------- ODR --------------------
+HPCF_G [3:0]	14.9Hz	59.5Hz	119Hz	238Hz	476Hz	952Hz
+-------------------------------------------------------------
+0000		1 	4 	8	15	30 	57
+0001 		0.5 	2 	4 	8 	15 	30
+0010		0.2	1	2	4	8	15
+0011		0.1	0.5	1	2	4	8
+0100		0.05	0.2	0.5	1	2	4
+0101		0.02	0.1	0.2	0.5	1	2
+0110		0.01	0.05	0.1	0.2	0.5	1
+0111		0.005	0.02	0.05	0.1	0.2	0.5
+1000		0.002	0.01	0.02	0.05	0.1	0.2
+1001		0.001	0.005	0.01	0.02	0.05	0.1
+*/
 
 typedef enum {
   LSM9DS1_LPF1_OUT              = 0x00,
@@ -609,6 +628,7 @@ typedef struct {
   lsm9ds1_status_reg_t   status_imu;
 } lsm9ds1_status_t;
 
+
 /* IMU/MAG Functions -------------------------------------------------------------*/
 static int32_t platform_write(void *handle, uint8_t reg, uint8_t *bufp, uint16_t len);
 static int32_t platform_read(void *handle, uint8_t reg, uint8_t *bufp, uint16_t len);
@@ -636,6 +656,7 @@ int32_t lsm9ds1_gy_filter_out_path_set(stmdev_ctx_t *ctx, lsm9ds1_gy_out_path_t 
 
 int32_t lsm9ds1_imu_data_rate_set(stmdev_ctx_t *ctx, lsm9ds1_imu_odr_t val);
 int32_t lsm9ds1_mag_data_rate_set(stmdev_ctx_t *ctx, lsm9ds1_mag_data_rate_t val);
+int32_t lsm9ds1_filter_settling_mask_set(stmdev_ctx_t *ctx, uint8_t val);
 
 int32_t lsm9ds1_dev_status_get(stmdev_ctx_t *ctx_mag, stmdev_ctx_t *ctx_imu, lsm9ds1_status_t *val);
 int32_t lsm9ds1_angular_rate_raw_get(stmdev_ctx_t *ctx, uint8_t *buff);

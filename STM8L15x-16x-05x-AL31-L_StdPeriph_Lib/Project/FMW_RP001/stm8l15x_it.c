@@ -28,6 +28,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm8l15x_it.h"
+#include "RP_I2C.h"
 
 /** @addtogroup STM8L15x_StdPeriph_Template
   * @{
@@ -96,7 +97,8 @@ INTERRUPT_HANDLER(DMA1_CHANNEL0_1_IRQHandler,2)
 {
     /* In order to detect unexpected events during development,
        it is recommended to set a breakpoint on the following instruction.
-    */
+    */ 
+  RP_I2C_DMA_RX_IRQHandler();
 }
 /**
   * @brief DMA1 channel2 and channel3 Interrupt routine.
@@ -108,6 +110,7 @@ INTERRUPT_HANDLER(DMA1_CHANNEL2_3_IRQHandler,3)
     /* In order to detect unexpected events during development,
        it is recommended to set a breakpoint on the following instruction.
     */
+  RP_I2C_DMA_TX_IRQHandler();
 }
 /**
   * @brief RTC / CSS_LSE Interrupt routine.
