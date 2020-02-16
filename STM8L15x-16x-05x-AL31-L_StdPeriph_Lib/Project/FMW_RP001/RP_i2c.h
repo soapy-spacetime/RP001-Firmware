@@ -12,8 +12,8 @@ typedef enum {EE_STATE_READY, EE_STATE_BUSY} EE_STATE;
 /* Private define ------------------------------------------------------------*/
   
 #define EE_SLAVE_ADDRESS     0xA0
-#define IMU_SLAVE_ADDRESS 0xD4 //or D4?
-#define MAG_SLAVE_ADDRESS 0x38
+#define IMU_SLAVE_ADDRESS    0xD4
+#define MAG_SLAVE_ADDRESS    0x38
 #define OWN_SLAVE_ADDRESS    0xF0
 
 #define RP_I2C_SPEED          100000
@@ -28,7 +28,7 @@ typedef enum {EE_STATE_READY, EE_STATE_BUSY} EE_STATE;
 /* Maximum timeout value for counting before exiting waiting loop on DMA 
    Trasnfer Complete. This value depends directly on the maximum page size and
    the sytem clock frequency. */
-#define RP_I2C_TIMEOUT_MAX         0x10000 
+#define RP_I2C_TIMEOUT_MAX         0x8000 
 #define RP_I2C_SUCCESS             FALSE // i.e. no error
 #define RP_I2C_FAILURE             TRUE  // i.e. error
 
@@ -48,7 +48,7 @@ typedef enum {EE_STATE_READY, EE_STATE_BUSY} EE_STATE;
 #define RP_I2C_DMA_FLAG_TX_TC           DMA1_FLAG_TC3
 #define RP_I2C_DMA_FLAG_RX_TC           DMA1_FLAG_TC0
 #define RP_I2C_DR_Address               ((uint16_t)0x005216)
-#define RP_USE_DMA
+//#define RP_USE_DMA
 
   
 /* Public Functions -------------------------------------------------------------*/
@@ -56,17 +56,18 @@ void RP_I2C_DeInit(void);
 bool RP_I2C_Init(void);
 bool RP_I2C_WaitForEvent(I2C_TypeDef* I2Cx, I2C_Event_TypeDef I2C_Event);
 bool RP_I2C_WaitWhileFlag(I2C_TypeDef* I2Cx, I2C_FLAG_TypeDef I2C_Flag, bool flagState);
-bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2Bytes, uint8_t* pBuffer,  volatile uint8_t* pLength);
-bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t* pBuffer, volatile uint8_t* pLength);
+bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2Bytes, uint8_t* pBuffer,  uint16_t Length);
+bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t* pBuffer, uint16_t Length);
 void RP_I2C_GenericWriteByte(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t Buffer);
-bool RP_I2C_WaitForOperationComplete(uint32_t timout);
+
+#ifdef RP_USE_DMA
 void RP_I2C_DMA_RX_IRQHandler(void);
 void RP_I2C_DMA_TX_IRQHandler(void);
+#endif
 
 void RP_EE_WriteByte(uint32_t WriteAddr, uint8_t Buffer);
-bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint8_t Length);
-bool RP_EE_ReadBuffer(uint32_t ReadAddr, uint8_t* pBuffer, volatile uint8_t* pLength);
-bool RP_EE_WaitEepromStandbyState(void);
+bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint16_t Length);
+bool RP_EE_ReadBuffer(uint32_t ReadAddr, uint8_t* pBuffer, uint16_t Length);
 
 
 /* IMU/MAG Typedefs -------------------------------------------------------------*/

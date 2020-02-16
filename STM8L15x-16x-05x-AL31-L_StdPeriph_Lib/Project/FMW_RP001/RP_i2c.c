@@ -5,6 +5,7 @@
 
 /* Private types -------------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
+//#define SIMPLE_INIT
 /* Private macro -------------------------------------------------------------*/
 
 /* 2MBit EEPROM has 18-bit addresses - top two bits are in slave address.
@@ -15,19 +16,19 @@
 #define RP_EE_WritePage(pBuffer, WriteAddr, pLength) RP_I2C_GenericWrite(eeAddress, WriteAddr, TRUE, pBuffer, pLength)
 
 /* Private variables -------------------------------------------------------------*/
-__IO uint8_t eeAddress = 0;
-__IO uint8_t imuAddress = 0;
-__IO uint8_t magAddress = 0;
+uint8_t eeAddress = 0;
+uint8_t imuAddress = 0;
+uint8_t magAddress = 0;
 __IO uint32_t I2C_Timeout = RP_I2C_TIMEOUT_MAX;
-__IO uint8_t* I2C_DataRemainingPointer;
-__IO uint8_t I2C_DataNum;
 
 lsm9ds1_id_t whoamI = {.imu = 0, .mag = 0};
 
 /* Low Level Functions (private) -----------------------------------------------*/
 void RP_LowLevel_DeInit(void);
 void RP_LowLevel_Init(void);
+#ifdef RP_USE_DMA
 void RP_LowLevel_DMAConfig(uint16_t pBuffer, uint8_t BufferSize, RP_DIRECTION Direction);
+#endif
 
 /* EE Functions (private) -----------------------------------------------*/
 
@@ -55,11 +56,13 @@ void RP_LowLevel_DeInit(void)
   /*!< Configure RP_I2C pins: SDA */
   GPIO_Init(RP_I2C_SDA_GPIO_PORT, RP_I2C_SDA_PIN, GPIO_Mode_In_PU_No_IT);
   
+#ifdef RP_USE_DMA
   /* Disable and Deinitialize the DMA channels */
   DMA_Cmd(RP_I2C_DMA_CHANNEL_TX, DISABLE);
   DMA_Cmd(RP_I2C_DMA_CHANNEL_RX, DISABLE);
   DMA_DeInit(RP_I2C_DMA_CHANNEL_TX);
   DMA_DeInit(RP_I2C_DMA_CHANNEL_RX);
+#endif
 }
 
 /**
@@ -75,6 +78,7 @@ void RP_LowLevel_Init(void)
   /*!< Enable the DMA clock */
   CLK_PeripheralClockConfig(CLK_Peripheral_DMA1, ENABLE);
   
+#ifdef RP_USE_DMA
   /* I2C TX DMA Channel configuration */
   DMA_DeInit(RP_I2C_DMA_CHANNEL_TX);
   DMA_Init(RP_I2C_DMA_CHANNEL_TX,
@@ -97,10 +101,10 @@ void RP_LowLevel_Init(void)
            DMA_MemoryIncMode_Inc,
            DMA_Priority_VeryHigh,
            DMA_MemoryDataSize_Byte);
-  
-  
+#endif
 }
 
+#ifdef RP_USE_DMA
 /**
 * @brief  Initializes DMA channel used by the I2C EEPROM driver.
 * @param  None
@@ -128,7 +132,7 @@ void RP_LowLevel_DMAConfig(uint16_t pBuffer, uint8_t BufferSize, RP_DIRECTION Di
   DMA_ITConfig(RP_I2C_DMA_CHANNEL_TX, DMA_ITx_TC, ENABLE);
   DMA_ITConfig(RP_I2C_DMA_CHANNEL_RX, DMA_ITx_TC, ENABLE);
 }
-
+#endif
 
 
 /**
@@ -157,17 +161,21 @@ bool RP_I2C_Init(void)
   I2C_Init(RP_I2C, RP_I2C_SPEED, OWN_SLAVE_ADDRESS, I2C_Mode_I2C, I2C_DutyCycle_2,
            I2C_Ack_Enable, I2C_AcknowledgedAddress_7bit);
   
+#ifdef RP_USE_DMA
   /* Enable the RP_I2C peripheral DMA requests */
   I2C_DMACmd(RP_I2C, ENABLE);
+#endif
   
   eeAddress = EE_SLAVE_ADDRESS;
   imuAddress = IMU_SLAVE_ADDRESS;
   magAddress = MAG_SLAVE_ADDRESS;
   
   if(I2C_GetFlagStatus(RP_I2C,I2C_FLAG_BUSY)){
-      return RP_I2C_FAILURE;
+    return RP_I2C_FAILURE;
   }
-  
+#ifdef SIMPLE_INIT
+  return RP_I2C_SUCCESS;
+#endif
   /* Initialize magnetic sensors driver interface */
   dev_ctx_mag.write_reg = platform_write;
   dev_ctx_mag.read_reg = platform_read;
@@ -180,13 +188,13 @@ bool RP_I2C_Init(void)
   
   /* Check device ID */
   if(lsm9ds1_dev_id_get(&dev_ctx_mag, &dev_ctx_imu, &whoamI) != RP_I2C_SUCCESS){
-    while(1); // read fialed
+    return RP_I2C_FAILURE;
   } else if (
-        (whoamI.imu != LSM9DS1_IMU_ID) || 
-        (whoamI.mag != LSM9DS1_MAG_ID)
-            ){
-              while(1); //device ID incorrect
-            }
+             (whoamI.imu != LSM9DS1_IMU_ID) || 
+               (whoamI.mag != LSM9DS1_MAG_ID)
+                 ){
+                   return RP_I2C_FAILURE;
+                 }
   
   /* Restore default configuration */
   uint8_t rst;
@@ -685,10 +693,11 @@ int32_t lsm9ds1_dev_reset_get(stmdev_ctx_t *ctx_mag, stmdev_ctx_t *ctx_imu,
 int32_t lsm9ds1_dev_id_get(stmdev_ctx_t *ctx_mag, stmdev_ctx_t *ctx_imu,
                            lsm9ds1_id_t *buff)
 {
-  int32_t ret;
+  int32_t ret;  
   ret = lsm9ds1_read_reg(ctx_imu, LSM9DS1_WHO_AM_I,
                          (uint8_t*)&(buff->imu), 1);
-  if(ret == 0){
+  
+  if(ret == RP_I2C_SUCCESS){
     ret = lsm9ds1_read_reg(ctx_mag, LSM9DS1_WHO_AM_I_M,
                            (uint8_t*)&(buff->mag), 1);
   }
@@ -757,15 +766,7 @@ static int32_t platform_write(void *handle, uint8_t reg, uint8_t *bufp,
                               uint16_t len)
 {
   uint8_t *i2c_address = handle;
-  uint8_t length;
-  bool err;
-  do{
-    length  = (uint8_t) len;
-    len -= length;
-    err = RP_I2C_GenericWrite(*i2c_address, (uint16_t)reg, FALSE, bufp, &length);
-    err = err || RP_I2C_WaitForOperationComplete(RP_I2C_TIMEOUT_MAX);
-  }while(!err && (len > 0));
-  return err;
+  return RP_I2C_GenericWrite(*i2c_address, (uint16_t)reg, FALSE, bufp, len);
 }
 
 /**
@@ -782,20 +783,12 @@ static int32_t platform_read(void *handle, uint8_t reg, uint8_t *bufp,
                              uint16_t len)
 {
   uint8_t *i2c_address = handle;
-  uint8_t length;
-  bool err;
-  do{
-    length  = (uint8_t) len;
-    len -= length;
-    err = RP_I2C_GenericRead(*i2c_address, (uint16_t)reg, FALSE, bufp, &length);
-    err = err || RP_I2C_WaitForOperationComplete(RP_I2C_TIMEOUT_MAX);
-  }while(!err && (len > 0));
-  return err;
+  return RP_I2C_GenericRead(*i2c_address, (uint16_t)reg, FALSE, bufp, len);
 }
 
 bool RP_I2C_WaitForEvent(I2C_TypeDef* I2Cx, I2C_Event_TypeDef I2C_Event){
   I2C_Timeout= RP_I2C_TIMEOUT_MAX;
-  while((bool)!I2C_CheckEvent(I2Cx, I2C_Event) && --I2C_Timeout)
+  while(!I2C_CheckEvent(I2Cx, I2C_Event) && --I2C_Timeout)
   {}
   return (bool)(I2C_Timeout == 0);
 }
@@ -826,15 +819,9 @@ bool RP_I2C_WaitWhileFlag(I2C_TypeDef* I2Cx, I2C_FLAG_TypeDef I2C_Flag, bool fla
 *
 * @retval error
 */
-bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2Bytes, uint8_t* pBuffer,  volatile uint8_t* pLength)
-{  
-  RP_I2C_WaitForOperationComplete(RP_I2C_TIMEOUT_MAX);
-  
-  /* Set the pointer to the Number of data to be read. This pointer will be used
-  by the DMA Transfer Complete interrupt Handler in order to reset the 
-  variable to 0. User should check on this variable in order to know if the 
-  DMA transfer has been completed or not. */
-  I2C_DataRemainingPointer = pLength;
+bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2Bytes, uint8_t* pBuffer,  uint16_t Length)
+{    
+  if(Length == 0) return RP_I2C_FAILURE;
   
   /*!< While the bus is busy */
   if(RP_I2C_WaitWhileFlag(RP_I2C, I2C_FLAG_BUSY, TRUE) != RP_I2C_SUCCESS){
@@ -885,15 +872,21 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   }
   
   /*!< Send slave address for read */
-  I2C_Send7bitAddress(RP_I2C, (uint8_t)eeAddress, I2C_Direction_Receiver);
+  I2C_Send7bitAddress(RP_I2C, SlaveAddr, I2C_Direction_Receiver);
+  
+  /*!<
+  * The peripheral is shit, so always read at least three bytes.
+  * There are supposedlyways that it works to read just 1 or 2, 
+  * but they don't seem to work.
+  * If fewer are needed, discard as necessary...
+  */
   
   /*!< Test on EV6 and clear it */
   if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
-  
-  /* If number of data to be read is 1, then DMA couldn't be used */
-  if ((*I2C_DataRemainingPointer) < 2)
+  /*!< Receive bytes until 3 are left */
+  while(Length > 3)
   {
     /*!< Test on EV7 and clear it */
     if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_RECEIVED) != RP_I2C_SUCCESS){
@@ -901,35 +894,64 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
     }
     
     /*!< Read a byte from the slave */
-    *pBuffer = I2C_ReceiveData(RP_I2C);
-    
-    /*!< Decrement the read bytes counter */
-    (uint8_t)(*I2C_DataRemainingPointer)--;
-    
-    /*!< Disable Acknowledgement */
-    I2C_AcknowledgeConfig(RP_I2C, DISABLE);
-    
-    /*!< Send STOP Condition */
-    I2C_GenerateSTOP(RP_I2C, ENABLE);
-    
-    /*!< Enable Acknowledgement to be ready for another reception */
-    I2C_AcknowledgeConfig(RP_I2C, ENABLE);
+    *(pBuffer++) = I2C_ReceiveData(RP_I2C);
+    Length--;
   }
-  /* DMA could be used for number of data higher than 1 */
-  else
-  {
-    /* Configure the DMA Rx Channel with the buffer address and the buffer size */
-    RP_LowLevel_DMAConfig((uint16_t)pBuffer, (uint8_t)(*I2C_DataRemainingPointer), RP_DIRECTION_RX);
-    
-    /* Inform the DMA that the next End Of Transfer Signal will be the last one */
-    I2C_DMALastTransferCmd(RP_I2C, ENABLE);
-    
-    /* Enable the DMA Rx Channel */
-    DMA_Cmd(RP_I2C_DMA_CHANNEL_RX, ENABLE);
-    
-    /* Global DMA Enable */
-    DMA_GlobalCmd(ENABLE);
+  
+  //Receive Data N-2
+  /*!< Test on EV7 and clear it */
+  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_RECEIVED) != RP_I2C_SUCCESS){
+    return RP_I2C_FAILURE;
   }
+  
+  //Do nothing - leave shift register full
+  
+  
+  //Receive Data N-1
+  /*!< Wait for both data and shift registers to fill */
+  if(RP_I2C_WaitWhileFlag(RP_I2C, I2C_FLAG_BTF, FALSE) != RP_I2C_SUCCESS){
+    return RP_I2C_FAILURE;
+  }
+  
+  /*!< Disable Acknowledgement */
+  I2C_AcknowledgeConfig(RP_I2C, DISABLE);
+  
+  //Read Data N-2
+  /*!< Read a byte from the slave */
+  *(pBuffer++) = I2C_ReceiveData(RP_I2C);
+  Length--;
+  
+  //Receive Data N
+  /*!< Test on EV7 and clear it */
+  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_RECEIVED) != RP_I2C_SUCCESS){
+    return RP_I2C_FAILURE;
+  }
+  
+  /*!< Send STOP Condition */
+  I2C_GenerateSTOP(RP_I2C, ENABLE);
+  
+  //Read Data N-1
+  /*!< Read a byte from the slave */
+  if(Length){
+    *(pBuffer++) = I2C_ReceiveData(RP_I2C);
+    Length--;
+  } else I2C_ReceiveData(RP_I2C);
+  
+  /*!< Wait for shift register to populate data register */
+  if(RP_I2C_WaitWhileFlag(RP_I2C, I2C_FLAG_RXNE, FALSE) != RP_I2C_SUCCESS){
+    return RP_I2C_FAILURE;
+  }
+  
+  //Read Data N
+  /*!< Read a byte from the slave */
+  if(Length){
+    *(pBuffer) = I2C_ReceiveData(RP_I2C);
+    Length--;
+  } else I2C_ReceiveData(RP_I2C);
+  
+  
+  /*!< Enable Acknowledgement to be ready for another reception */
+  I2C_AcknowledgeConfig(RP_I2C, ENABLE);
   
   return RP_I2C_SUCCESS;
 }
@@ -1001,16 +1023,8 @@ void RP_I2C_GenericWriteByte(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAd
 *
 * @retval None
 */
-bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t* pBuffer, volatile uint8_t* pLength)
-{  
-  RP_I2C_WaitForOperationComplete(RP_I2C_TIMEOUT_MAX);
-  
-  /* Set the pointer to the Number of data to be written. This pointer will be used
-  by the DMA Transfer Completer interrupt Handler in order to reset the 
-  variable to 0. User should check on this variable in order to know if the 
-  DMA transfer has been complete or not. */
-  I2C_DataRemainingPointer = pLength;
-  
+bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t* pBuffer, uint16_t Length)
+{    
   /*!< While the bus is busy */
   if(RP_I2C_WaitWhileFlag(RP_I2C, I2C_FLAG_BUSY, TRUE) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
@@ -1042,52 +1056,21 @@ bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs
   /*!< Send the slave's internal address to write to : LSB of the address */
   I2C_SendData(RP_I2C, (uint8_t)(WriteAddr & 0x00FF));
   
-  /*!< Test on EV8 and clear it */
-  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_TRANSMITTED) != RP_I2C_SUCCESS)
-    return RP_I2C_FAILURE;
-  
-  /* If number of data to be written is 1, then DMA couldn't be used */
-  if ((*I2C_DataRemainingPointer) < 2)
+  while(Length)
   {
-    /*!< Send the byte to be written */
-    I2C_SendData(RP_I2C, *pBuffer);
-    
     /*!< Test on EV8 and clear it */
     if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_TRANSMITTED) != RP_I2C_SUCCESS)
       return RP_I2C_FAILURE;
     
-    /*!< Send STOP condition */
-    I2C_GenerateSTOP(RP_I2C, ENABLE);
-    
-    (*I2C_DataRemainingPointer)--;
+    /*!< Send the byte to be written */
+    I2C_SendData(RP_I2C, *(pBuffer++));        
+    Length--;
   }
-  /* DMA could be used for number of data higher than 1 */
-  else
-  {
-    /* Configure the DMA Tx Channel with the buffer address and the buffer size */
-    RP_LowLevel_DMAConfig((uint16_t)pBuffer, (*I2C_DataRemainingPointer), RP_DIRECTION_TX);
-    
-    /* Enable the DMA Tx Channel */
-    DMA_Cmd(RP_I2C_DMA_CHANNEL_TX, ENABLE);
-    
-    /* Global DMA Enable */
-    DMA_GlobalCmd(ENABLE);
-  }
+  
+  /*!< Send STOP condition */
+  I2C_GenerateSTOP(RP_I2C, ENABLE);
   
   return RP_I2C_SUCCESS;
-}
-
-bool RP_I2C_WaitForOperationComplete(uint32_t timeout)
-{
-  // If data remaining is null, return success
-  if(!I2C_DataRemainingPointer) 
-    return RP_I2C_SUCCESS;
-  
-  I2C_Timeout = timeout ? timeout : RP_I2C_TIMEOUT_MAX;
-  while ((*I2C_DataRemainingPointer > 0) && (--I2C_Timeout > 0)){
-    // wait
-  }
-  return (I2C_Timeout == 0) ? RP_I2C_FAILURE : RP_I2C_SUCCESS;
 }
 
 /**
@@ -1123,10 +1106,10 @@ void RP_EE_WriteByte(uint32_t WriteAddr, uint8_t Buffer)
 *
 * @retval None
 */
-bool RP_EE_ReadBuffer(uint32_t ReadAddr, uint8_t* pBuffer, volatile uint8_t* pLength)
+bool RP_EE_ReadBuffer(uint32_t ReadAddr, uint8_t* pBuffer, uint16_t Length)
 {
   eeAddress = EE_ADDRESS(ReadAddr);
-  return RP_I2C_GenericRead(eeAddress, (uint16_t)ReadAddr, TRUE, pBuffer, pLength);
+  return RP_I2C_GenericRead(eeAddress, (uint16_t)ReadAddr, TRUE, pBuffer, Length);
 }
 
 
@@ -1163,8 +1146,10 @@ RP_I2C_GenericWrite(eeAddress, WriteAddr, TRUE, pBuffer, pLength);
 * @param  Length : number of bytes to write to the EEPROM.
 * @retval err
 */
-bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint8_t Length)
+bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint16_t Length)
 {
+  if(Length == 0) return RP_I2C_FAILURE;
+  
   eeAddress = EE_ADDRESS(WriteAddr);
   
   uint8_t NumOfPage = 0; //the number of whole pages covered by this write
@@ -1175,29 +1160,13 @@ bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint8_t Length)
   PageRemaining = (uint8_t)(EE_PAGESIZE - (WriteAddr % EE_PAGESIZE)); 
   
   if(Length < PageRemaining){
-    /* Store the number of data to be written */
-    I2C_DataNum = Length;
-    RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, &I2C_DataNum);
-    /* Wait transfer through DMA to be complete */
-    if(
-       (RP_I2C_WaitForOperationComplete(RP_I2C_TIMEOUT_MAX) != RP_I2C_SUCCESS) ||
-       (RP_EE_WaitEepromStandbyState()!= RP_I2C_SUCCESS)
-         ){
-      return RP_I2C_FAILURE;
-    }
+    // All the data will fit on this page - just write it
+    RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, Length);
   }
-  /*!< If Length > PageRemaining */
+  /*!< If Length >= PageRemaining */
   else{
-    /* Store the number of data to be written */
-    I2C_DataNum = PageRemaining;
-    RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, &I2C_DataNum);
-    /* Wait transfer through DMA to be complete */
-    if(
-       (RP_I2C_WaitForOperationComplete(RP_I2C_TIMEOUT_MAX) != RP_I2C_SUCCESS) ||
-       (RP_EE_WaitEepromStandbyState()!= RP_I2C_SUCCESS)
-         ){
-      return RP_I2C_FAILURE;
-    }
+    // Write until the end of this page
+    RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, PageRemaining);
     
     // Update pointers, now page aligned
     WriteAddr += PageRemaining;
@@ -1209,19 +1178,10 @@ bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint8_t Length)
     NumOfPage = (uint8_t)(Length / EE_PAGESIZE);
     NumOfSingle = (uint8_t)(Length % EE_PAGESIZE);
     
-    // Transfer remaining pages
+    // Transfer any remaining pages (could be zero, if Length == PageRemaining)
     while (NumOfPage--)
     {
-      /* Store the number of data to be written */
-      I2C_DataNum = EE_PAGESIZE;
-      RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, &I2C_DataNum);
-      /* Wait transfer through DMA to be complete */
-    if(
-       (RP_I2C_WaitForOperationComplete(RP_I2C_TIMEOUT_MAX) != RP_I2C_SUCCESS) ||
-       (RP_EE_WaitEepromStandbyState()!= RP_I2C_SUCCESS)
-         ){
-      return RP_I2C_FAILURE;
-    }
+      RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, EE_PAGESIZE);
       
       /* Move the pointers forward */
       WriteAddr +=  EE_PAGESIZE;
@@ -1229,72 +1189,16 @@ bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint8_t Length)
       pBuffer += EE_PAGESIZE;
     }
     
-    //Transfer remaining single bytes
+    //Transfer any remaining single bytes
     if (NumOfSingle != 0)
     {
-      /* Store the number of data to be written */
-      I2C_DataNum = NumOfSingle;
-      RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, &I2C_DataNum);
-      /* Wait transfer through DMA to be complete */
-    if(
-       (RP_I2C_WaitForOperationComplete(RP_I2C_TIMEOUT_MAX) != RP_I2C_SUCCESS) ||
-       (RP_EE_WaitEepromStandbyState()!= RP_I2C_SUCCESS)
-         ){
-      return RP_I2C_FAILURE;
-    }
+      RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, NumOfSingle);
     }
   }
   return RP_I2C_SUCCESS;
 }
 
-/**
-* @brief  Wait for EEPROM Standby state
-* @param  None
-* @retval err
-*/
-bool RP_EE_WaitEepromStandbyState(void)
-{
-  uint8_t retries = 5;
-  while(retries--)
-  {
-    /*!< While the bus is busy */
-    if(RP_I2C_WaitWhileFlag(RP_I2C, I2C_FLAG_BUSY, TRUE) != RP_I2C_SUCCESS){
-      I2C_GenerateSTOP(RP_I2C, ENABLE);
-      continue;
-    }
-    
-    /*!< Send START condition */
-    I2C_GenerateSTART(RP_I2C, ENABLE);
-    
-    /*!< Test on EV5 and clear it */
-    if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_MODE_SELECT) != RP_I2C_SUCCESS){
-      I2C_GenerateSTOP(RP_I2C, ENABLE);
-      continue;
-    }
-    
-    /*!< Send EEPROM address for write */
-    I2C_Send7bitAddress(RP_I2C, eeAddress, I2C_Direction_Transmitter);
-    
-    /*!< Test on EV6 and clear it */
-    if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED) != RP_I2C_SUCCESS){
-      I2C_GenerateSTOP(RP_I2C, ENABLE);
-      continue;
-    } else{
-      break;
-    }
-  }
-    
-  /*!< Clear Acknowledge Failure flag */
-  I2C_ClearFlag(RP_I2C, I2C_FLAG_AF);
-  
-  /*!< STOP condition */
-  I2C_GenerateSTOP(RP_I2C, ENABLE);
-  
-  return (retries == 0) ? RP_I2C_FAILURE : RP_I2C_SUCCESS;
-}
-
-
-
+#ifdef RP_USE_DMA
 /**
 * @brief  This function handles the DMA Tx Channel interrupt Handler.
 *     @note This function should be called in the
@@ -1346,8 +1250,14 @@ void RP_I2C_DMA_RX_IRQHandler(void)
   /* Check if the DMA transfer is complete */
   if (DMA_GetFlagStatus(RP_I2C_DMA_FLAG_RX_TC) != RESET)
   {
+    /*!< Disable Acknowledgement */
+    I2C_AcknowledgeConfig(RP_I2C, DISABLE);
+    
     /*!< Send STOP Condition */
     I2C_GenerateSTOP(RP_I2C, ENABLE);
+    
+    /*!< Re-Enable Acknowledgement */
+    I2C_AcknowledgeConfig(RP_I2C, ENABLE);
     
     /* Disable the DMA Rx Channel and Clear all its Flags */
     DMA_Cmd(RP_I2C_DMA_CHANNEL_RX, DISABLE);
@@ -1357,14 +1267,6 @@ void RP_I2C_DMA_RX_IRQHandler(void)
     *I2C_DataRemainingPointer = 0;
   }
 }
-
-/**
-* @}
-*/
-
-
-/**
-* @}
-*/
+#endif
 
 

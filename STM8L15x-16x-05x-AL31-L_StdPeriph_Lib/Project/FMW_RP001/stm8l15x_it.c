@@ -98,7 +98,9 @@ INTERRUPT_HANDLER(DMA1_CHANNEL0_1_IRQHandler,2)
     /* In order to detect unexpected events during development,
        it is recommended to set a breakpoint on the following instruction.
     */ 
+#ifdef RP_USE_DMA
   RP_I2C_DMA_RX_IRQHandler();
+#endif
 }
 /**
   * @brief DMA1 channel2 and channel3 Interrupt routine.
@@ -110,7 +112,9 @@ INTERRUPT_HANDLER(DMA1_CHANNEL2_3_IRQHandler,3)
     /* In order to detect unexpected events during development,
        it is recommended to set a breakpoint on the following instruction.
     */
+#ifdef RP_USE_DMA
   RP_I2C_DMA_TX_IRQHandler();
+#endif
 }
 /**
   * @brief RTC / CSS_LSE Interrupt routine.
