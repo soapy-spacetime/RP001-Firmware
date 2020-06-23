@@ -1,0 +1,43 @@
+{
+    "build": {
+      "core": "sduino",
+      "extra_flags": "-DSTM8L151",
+      "f_cpu": "16000000L",
+      "cpu": "stm8",
+      "mcu": "STM8L151G6U7"
+    },
+    "debug": {
+      "openocd_target": "stm8l",
+      "tools": {
+        "stlink": {
+          "default": true,
+          "server": {
+            "arguments": [
+              "-f",
+              "scripts/interface/stlink.cfg",
+              "-f",
+              "scripts/target/stm8l.cfg"
+            ],
+            "executable": "bin/openocd",
+            "package": "tool-openocd"
+          },
+          "onboard": false
+        }
+      }
+    },
+    "frameworks": ["spl"],
+    "platforms": ["ststm8"],
+    "upload": {
+      "maximum_ram_size": 2048,
+      "maximum_size": 32768,
+      "protocol": "stlinkv2",
+      "protocols": [
+        "stlinkv2",
+        "stlink",
+        "serial"
+      ]
+    },
+    "name": "RP001",
+    "vendor": "Umberto Stefanini",
+    "url" : "www.delve.com"
+  }
