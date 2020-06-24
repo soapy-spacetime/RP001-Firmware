@@ -3,7 +3,12 @@
 		{
 			"name": "RoboPlankton",
 			"path": "RoboPlankton"
+		},
+		{
+			"path": "..\\..\\USB_I2C"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"C_Cpp.default.intelliSenseMode": "gcc-arm"
+	}
 }

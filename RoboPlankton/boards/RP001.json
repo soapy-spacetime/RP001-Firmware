@@ -9,7 +9,7 @@
     "debug": {
       "openocd_target": "stm8l",
       "tools": {
-        "stlink": {
+        "stlinkv2": {
           "default": true,
           "server": {
             "arguments": [
