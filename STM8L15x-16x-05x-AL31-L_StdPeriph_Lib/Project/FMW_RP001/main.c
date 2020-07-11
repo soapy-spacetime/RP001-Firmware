@@ -19,6 +19,7 @@
 #define DATA_PERIOD_MS (1000 / DATA_FREQUENCY_HZ)
 #define DATA_TIME_FMT(ms) 1 //Just increment the time field for each data point - use the metadata to know how much time has passed
 #define TIM2_PERIOD ((16000000 / 128 / DATA_FREQUENCY_HZ) - 1)
+#define POWER_ON_DELAY_S 60
 
 #define DATAPOINT_SIZE  18
 #define METADATA_SIZE   4
@@ -181,6 +182,9 @@ void main(void)
   uint32_t count = 0;
 #endif
   
+#ifdef POWER_ON_DELAY_S
+  uint32_t delay_ticks = (POWER_ON_DELAY_S * 1000L) / DATA_PERIOD_MS;
+#endif
   /* Infinite loop */
   while (1)
   {
@@ -188,7 +192,13 @@ void main(void)
     // Wait for correct period
     if(TIM2_GetFlagStatus(TIM2_FLAG_Update)){
       TIM2_ClearFlag(TIM2_FLAG_Update);
-            
+      
+#ifdef POWER_ON_DELAY_S
+      if(delay_ticks){
+        --delay_ticks;
+        continue; //skip measurements until power on delay has passed
+      }
+#endif
 #else
     /* Read IMU device status register */
     lsm9ds1_dev_status_get(&dev_ctx_mag, &dev_ctx_imu, &status);
