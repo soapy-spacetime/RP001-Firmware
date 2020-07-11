@@ -4,6 +4,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm8_eval.h"
+#include "string.h"
 
 /* Private types -------------------------------------------------------------*/
 typedef enum {RP_DIRECTION_TX, RP_DIRECTION_RX} RP_DIRECTION;
@@ -14,11 +15,18 @@ typedef enum {EE_STATE_READY, EE_STATE_BUSY} EE_STATE;
 #define EE_SLAVE_ADDRESS     0xA0
 #define IMU_SLAVE_ADDRESS    0xD4
 #define MAG_SLAVE_ADDRESS    0x38
-#define OWN_SLAVE_ADDRESS    0xF0
+#define OWN_SLAVE_ADDRESS    0x5A
 
-#define RP_I2C_SPEED          100000
+#define RP_I2C_SPEED          200000
 
-#define EE_PAGESIZE    128 //actually 256, but the DMA can't handle that
+#define EE_PAGESIZE    32 
+/* Hardware Page Size: 256
+ * Smaller pages write faster - page management is
+ * to avoid waiting for a write cycle mid-datapoint
+ * If using DMA, must be <= 255
+ */
+#define EE_FILLER_DATA_BYTE 0xAA
+#define EE_STANDBY_TIMEOUT (10000 / 60) // about 10ms
  
 /* Defintions for the state of the DMA transfer */   
 #define sEE_STATE_READY         0
@@ -28,7 +36,7 @@ typedef enum {EE_STATE_READY, EE_STATE_BUSY} EE_STATE;
 /* Maximum timeout value for counting before exiting waiting loop on DMA 
    Trasnfer Complete. This value depends directly on the maximum page size and
    the sytem clock frequency. */
-#define RP_I2C_TIMEOUT_MAX         0x8000 
+#define RP_I2C_TIMEOUT_MAX         0x4   // about 60us
 #define RP_I2C_SUCCESS             FALSE // i.e. no error
 #define RP_I2C_FAILURE             TRUE  // i.e. error
 
@@ -50,12 +58,15 @@ typedef enum {EE_STATE_READY, EE_STATE_BUSY} EE_STATE;
 #define RP_I2C_DR_Address               ((uint16_t)0x005216)
 //#define RP_USE_DMA
 
+#define RP_ACC_FULL_SCALE LSM9DS1_2g
+#define RP_GYR_FULL_SCALE LSM9DS1_500dps
+#define RP_MAG_FULL_SCALE LSM9DS1_4Ga // Earth's magnetic field is typically 0.25-0.65 Ga
   
 /* Public Functions -------------------------------------------------------------*/
 void RP_I2C_DeInit(void);
 bool RP_I2C_Init(void);
-bool RP_I2C_WaitForEvent(I2C_TypeDef* I2Cx, I2C_Event_TypeDef I2C_Event);
-bool RP_I2C_WaitWhileFlag(I2C_TypeDef* I2Cx, I2C_FLAG_TypeDef I2C_Flag, bool flagState);
+bool RP_I2C_WaitForEvent(I2C_Event_TypeDef I2C_Event);
+bool RP_I2C_WaitWhileFlag(I2C_FLAG_TypeDef I2C_Flag, bool flagState);
 bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2Bytes, uint8_t* pBuffer,  uint16_t Length);
 bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t* pBuffer, uint16_t Length);
 void RP_I2C_GenericWriteByte(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t Buffer);
@@ -65,11 +76,12 @@ void RP_I2C_DMA_RX_IRQHandler(void);
 void RP_I2C_DMA_TX_IRQHandler(void);
 #endif
 
-void RP_EE_WriteByte(uint32_t WriteAddr, uint8_t Buffer);
 bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint16_t Length);
+bool RP_EE_WriteBuffer_Delayed(uint8_t* pBuffer, uint16_t Length);
 bool RP_EE_ReadBuffer(uint32_t ReadAddr, uint8_t* pBuffer, uint16_t Length);
-
-
+bool RP_EE_Flush(void);
+extern uint16_t EE_PageBuffer_ind;
+extern uint32_t EE_PageBuffer_Address;
 /* IMU/MAG Typedefs -------------------------------------------------------------*/
 #define PROPERTY_DISABLE                (0U)
 #define PROPERTY_ENABLE                 (1U)

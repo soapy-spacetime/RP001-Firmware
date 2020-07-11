@@ -10,19 +10,20 @@
 //#define ENABLE_GPIO
 //#define ENABLE_ADC
 #define ENABLE_TIM2
-#define EEPROM_TEST
+//#define EEPROM_TEST
 //#define TIME_TEST
 
-#define DATA_LIMIT 10
+//#define DATA_LIMIT 10
 
-#define DATA_FREQUENCY_HZ 10
+#define DATA_FREQUENCY_HZ 100 // up to 150
 #define DATA_PERIOD_MS (1000 / DATA_FREQUENCY_HZ)
-#define DATA_TIME_FMT(ms) ((ms) / 10) //Store the data in units of 10s of ms (increments of 1 @ 100Hz)
+#define DATA_TIME_FMT(ms) 1 //Just increment the time field for each data point - use the metadata to know how much time has passed
 #define TIM2_PERIOD ((16000000 / 128 / DATA_FREQUENCY_HZ) - 1)
 
-#define DATAPOINT_SIZE 20
-#define EEPROM_SIZE (1<<18)
-#define END_OF_DATA_BYTE 0xAA
+#define DATAPOINT_SIZE  18
+#define METADATA_SIZE   4
+#define EEPROM_SIZE ((uint32_t)(1)<<18)
+
 /* Private macro -------------------------------------------------------------*/
 #define DATAPOINT_HANDLE(dp, field) ((uint8_t *)(dp.fmt.field))
 #define max(a,b) ((a) > (b) ? (a) : (b))
@@ -32,22 +33,32 @@
 typedef union{
   uint8_t bytes[DATAPOINT_SIZE];
   struct {
-    uint16_t time;
     int16_t acc[3];
     int16_t ang[3];
     int16_t mag[3];
   } fmt;
 }datapoint_t;
+
+typedef union{
+  uint8_t bytes[METADATA_SIZE];
+  struct{
+    uint8_t sampleFrequency;
+    lsm9ds1_xl_fs_t accFullScale;
+    lsm9ds1_gy_fs_t gyrFullScale;
+    lsm9ds1_mag_fs_t magFullScale;
+  }fmt;
+}metadata_t;
+
 /* Private variables ---------------------------------------------------------*/
-static uint32_t EEAddress = 0;
 #ifdef EEPROM_TEST
 #define READ_BUFFER_SIZE 64
 #define WRITE_BUFFER_SIZE 64
+static uint32_t EEAddress = 0;
 volatile uint16_t WriteLength = 0;
 static uint8_t WriteBuffer[WRITE_BUFFER_SIZE];
 volatile uint16_t ReadLength = 0;
 static uint8_t ReadBuffer[READ_BUFFER_SIZE];
-#endif
+#endif // EEPROM_TEST
 
 static lsm9ds1_status_t status;
 datapoint_t datapoint;
@@ -61,6 +72,8 @@ void TIM2_Config(void);
 #endif
 
 #ifdef ENABLE_ADC
+#define VREFINT_CONV (0x0600 + (*(uint8_t*)(0x00 4910)))
+#define VREFINT_V 1.224
 void initADC(void);
 #endif
 
@@ -138,24 +151,27 @@ void main(void)
   //Enable global interrupts
   enableInterrupts();
   
+  metadata_t meta;
+  meta.fmt.sampleFrequency = DATA_FREQUENCY_HZ;
+  meta.fmt.accFullScale = RP_ACC_FULL_SCALE;
+  meta.fmt.gyrFullScale = RP_GYR_FULL_SCALE;
+  meta.fmt.magFullScale = RP_MAG_FULL_SCALE;
+  RP_EE_WriteBuffer_Delayed(meta.bytes, METADATA_SIZE);   
   
   
 #ifdef EEPROM_TEST
-/* TODO! Figure out:
- *      - Which slave is sending the Nack
- *      - How to handle the Nack appropriately
- */
   memcpy(&WriteBuffer[0], "Hello World", 12);
   WriteLength = strlen("Hello World");
-  
   if(RP_EE_WriteBuffer(EEAddress, WriteBuffer, WriteLength) == RP_I2C_SUCCESS){
-    EEAddress += WriteLength;
-    while(1){
-    if(RP_EE_ReadBuffer(0, ReadBuffer, 0) == RP_I2C_FAILURE)
-      if(RP_EE_ReadBuffer(0, ReadBuffer, 1) == RP_I2C_SUCCESS)
-        if(RP_EE_ReadBuffer(0, ReadBuffer, 2) == RP_I2C_SUCCESS)
-          if(RP_EE_ReadBuffer(0, ReadBuffer, 3) == RP_I2C_SUCCESS)
-            RP_EE_ReadBuffer(0, ReadBuffer, WriteLength);
+    if(RP_EE_WaitForStandby() == RP_I2C_SUCCESS){
+      EEAddress += WriteLength;
+      while(1){
+        if(RP_EE_ReadBuffer(0, ReadBuffer, 0) == RP_I2C_FAILURE)
+          if(RP_EE_ReadBuffer(0, ReadBuffer, 1) == RP_I2C_SUCCESS)
+            if(RP_EE_ReadBuffer(0, ReadBuffer, 2) == RP_I2C_SUCCESS)
+              if(RP_EE_ReadBuffer(0, ReadBuffer, 3) == RP_I2C_SUCCESS)
+                RP_EE_ReadBuffer(0, ReadBuffer, WriteLength);
+      }
     }
   }
   while(1);
@@ -172,6 +188,7 @@ void main(void)
     // Wait for correct period
     if(TIM2_GetFlagStatus(TIM2_FLAG_Update)){
       TIM2_ClearFlag(TIM2_FLAG_Update);
+            
 #else
     /* Read IMU device status register */
     lsm9ds1_dev_status_get(&dev_ctx_mag, &dev_ctx_imu, &status);
@@ -183,28 +200,25 @@ void main(void)
       lsm9ds1_angular_rate_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,ang));
       lsm9ds1_magnetic_raw_get(&dev_ctx_mag, DATAPOINT_HANDLE(datapoint,mag));
       
-      /* Store timestamp */
-      datapoint.fmt.time += DATA_TIME_FMT(DATA_PERIOD_MS);
       /* Store data */
-      RP_EE_WriteBuffer(EEAddress, datapoint.bytes, DATAPOINT_SIZE);
-      EEAddress += DATAPOINT_SIZE;
+      RP_EE_WriteBuffer_Delayed(datapoint.bytes, DATAPOINT_SIZE);   
       
-      if(EEAddress >= (EEPROM_SIZE - DATAPOINT_SIZE))
+      /* Stop if there is space for one datapoint or less */
+      if((EE_PageBuffer_Address + EE_PageBuffer_ind) >= (EEPROM_SIZE - DATAPOINT_SIZE))
         break;
       
 #ifdef DATA_LIMIT
-      if(++count >= DATA_LIMIT)
+      if(++count >= DATA_LIMIT) //Stop if reached data limit
         break;
 #endif
     }
   } 
   /*End Infinite loop */
   
-  // Write remaining EEPROM with filler to denote end of sampling
-  memset(datapoint.bytes, END_OF_DATA_BYTE, DATAPOINT_SIZE);
-  RP_EE_WriteBuffer(EEAddress, datapoint.bytes, min((EEPROM_SIZE - EEAddress), DATAPOINT_SIZE));
+  RP_EE_Flush();
   
   //Stop
+  RP_I2C_DeInit();
   while(1);
 }
 
@@ -214,7 +228,7 @@ void main(void)
   * @param  None
   * @retval None
   */
-static void TIM2_Config(void)
+void TIM2_Config(void)
 {
   /* TIM2 configuration:
      - TIM2 counter is clocked by HSI div 128 = 125 KHz
@@ -282,6 +296,7 @@ void callback_DRDY_M(void)
 
 #ifdef ENABLE_ADC
 void initADC(void){
+  // see examples for real implementation
   ADC_Init(ADC1, ADC_ConversionMode_Single, ADC_Resolution_12Bit, ADC_Prescaler_1);
 }
 #endif

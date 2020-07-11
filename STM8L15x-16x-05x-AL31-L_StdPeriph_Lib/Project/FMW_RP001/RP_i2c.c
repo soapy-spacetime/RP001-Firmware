@@ -31,7 +31,11 @@ void RP_LowLevel_DMAConfig(uint16_t pBuffer, uint8_t BufferSize, RP_DIRECTION Di
 #endif
 
 /* EE Functions (private) -----------------------------------------------*/
+bool RP_EE_WaitForStandby(void);
 
+uint8_t EE_PageBuffer[EE_PAGESIZE];
+uint16_t EE_PageBuffer_ind = 0;
+uint32_t EE_PageBuffer_Address = 0;
 
 /**
 * @brief  DeInitializes peripherals used by the I2C EEPROM driver.
@@ -75,10 +79,10 @@ void RP_LowLevel_Init(void)
   /*!< RP_I2C Periph clock enable */
   CLK_PeripheralClockConfig(RP_I2C_CLK, ENABLE);
   
+#ifdef RP_USE_DMA
   /*!< Enable the DMA clock */
   CLK_PeripheralClockConfig(CLK_Peripheral_DMA1, ENABLE);
   
-#ifdef RP_USE_DMA
   /* I2C TX DMA Channel configuration */
   DMA_DeInit(RP_I2C_DMA_CHANNEL_TX);
   DMA_Init(RP_I2C_DMA_CHANNEL_TX,
@@ -158,7 +162,7 @@ bool RP_I2C_Init(void)
   /* RP_I2C Peripheral Enable */
   I2C_Cmd(RP_I2C, ENABLE);
   /* RP_I2C configuration after enabling it */
-  I2C_Init(RP_I2C, RP_I2C_SPEED, OWN_SLAVE_ADDRESS, I2C_Mode_I2C, I2C_DutyCycle_2,
+  I2C_Init(RP_I2C, RP_I2C_SPEED, OWN_SLAVE_ADDRESS, I2C_Mode_I2C, I2C_DutyCycle_16_9,
            I2C_Ack_Enable, I2C_AcknowledgedAddress_7bit);
   
 #ifdef RP_USE_DMA
@@ -207,24 +211,25 @@ bool RP_I2C_Init(void)
   lsm9ds1_block_data_update_set(&dev_ctx_mag, &dev_ctx_imu, PROPERTY_ENABLE);
   
   /* Set full scale */
-  lsm9ds1_xl_full_scale_set(&dev_ctx_imu, LSM9DS1_8g);
-  lsm9ds1_gy_full_scale_set(&dev_ctx_imu, LSM9DS1_2000dps);
-  lsm9ds1_mag_full_scale_set(&dev_ctx_mag, LSM9DS1_16Ga);
+  lsm9ds1_xl_full_scale_set(&dev_ctx_imu, RP_ACC_FULL_SCALE);
+  lsm9ds1_gy_full_scale_set(&dev_ctx_imu, RP_GYR_FULL_SCALE);
+  lsm9ds1_mag_full_scale_set(&dev_ctx_mag, RP_MAG_FULL_SCALE);
   
   /* Configure filtering chain - See datasheet for filtering chain details */
   /* Accelerometer filtering chain */
-  lsm9ds1_xl_filter_aalias_bandwidth_set(&dev_ctx_imu, LSM9DS1_AUTO);
-  lsm9ds1_xl_filter_lp_bandwidth_set(&dev_ctx_imu, LSM9DS1_LP_ODR_DIV_9); //High pass filter also available
-  lsm9ds1_xl_filter_out_path_set(&dev_ctx_imu, LSM9DS1_LP_OUT);
+  lsm9ds1_xl_filter_aalias_bandwidth_set(&dev_ctx_imu, LSM9DS1_50Hz);   // Assuming this is LPF1
+  lsm9ds1_xl_filter_lp_bandwidth_set(&dev_ctx_imu, LSM9DS1_LP_DISABLE); // Disable LPF2
+  lsm9ds1_xl_filter_out_path_set(&dev_ctx_imu, LSM9DS1_LP_OUT);         // LPF2 disabled, so this is actually unfiltered output
+  
   /* Gyroscope filtering chain */
-  lsm9ds1_gy_filter_lp_bandwidth_set(&dev_ctx_imu, LSM9DS1_LP_ULTRA_LIGHT); //typ. 100Hz (see datasheet Table 47)
-  lsm9ds1_gy_filter_hp_bandwidth_set(&dev_ctx_imu, LSM9DS1_HP_ULTRA_LOW); //see header for values
-  lsm9ds1_gy_filter_out_path_set(&dev_ctx_imu, LSM9DS1_LPF1_HPF_LPF2_OUT);
+  //lsm9ds1_gy_filter_lp_bandwidth_set(&dev_ctx_imu, LSM9DS1_LP_ULTRA_LIGHT);   //LPF2 bypassed (see datasheet Table 47)
+  //lsm9ds1_gy_filter_hp_bandwidth_set(&dev_ctx_imu, LSM9DS1_HP_ULTRA_LOW);     //HPF bypassed
+  lsm9ds1_gy_filter_out_path_set(&dev_ctx_imu, LSM9DS1_LPF1_OUT); // Bypass LPF2 & HPF; LPF1 BW set by ODR
   
   /* Set Output Data Rate / Power mode */
-  lsm9ds1_imu_data_rate_set(&dev_ctx_imu, LSM9DS1_IMU_476Hz);
-  lsm9ds1_mag_data_rate_set(&dev_ctx_mag, LSM9DS1_MAG_MP_560Hz);
-  lsm9ds1_filter_settling_mask_set(&dev_ctx_imu, TRUE);
+  lsm9ds1_imu_data_rate_set(&dev_ctx_imu, LSM9DS1_IMU_238Hz);           // sets Gyro LPF1 BW to 76Hz
+  lsm9ds1_mag_data_rate_set(&dev_ctx_mag, LSM9DS1_MAG_UHP_155Hz);       // no filtering on Magnetometer
+  lsm9ds1_filter_settling_mask_set(&dev_ctx_imu, TRUE);                 // make data ready flag wait for filters to settle 
   
   return RP_I2C_SUCCESS;
 }
@@ -706,7 +711,7 @@ int32_t lsm9ds1_dev_id_get(stmdev_ctx_t *ctx_mag, stmdev_ctx_t *ctx_imu,
 
 /**
 * @brief  Angular rate sensor. The value is expressed as a 16-bit word in
-*         twoâ€™s complement.[get]
+*         two’s complement.[get]
 *
 * @param  ctx    Read / write interface definitions.(ptr)
 * @param  buff   Buffer that stores the data read.(ptr)
@@ -722,7 +727,7 @@ int32_t lsm9ds1_angular_rate_raw_get(stmdev_ctx_t *ctx, uint8_t *buff)
 
 /**
 * @brief  Linear acceleration output register. The value is expressed as
-*         a 16-bit word in twoâ€™s complement.[get]
+*         a 16-bit word in two’s complement.[get]
 *
 * @param  ctx    Read / write interface definitions.(ptr)
 * @param  buff   Buffer that stores the data read.(ptr)
@@ -738,7 +743,7 @@ int32_t lsm9ds1_acceleration_raw_get(stmdev_ctx_t *ctx, uint8_t *buff)
 
 /**
 * @brief  Magnetic sensor. The value is expressed as a 16-bit word in
-*         twoâ€™s complement.[get]
+*         two’s complement.[get]
 *
 * @param  ctx    Read / write interface definitions.(ptr)
 * @param  buff   Buffer that stores the data read.(ptr)
@@ -786,16 +791,16 @@ static int32_t platform_read(void *handle, uint8_t reg, uint8_t *bufp,
   return RP_I2C_GenericRead(*i2c_address, (uint16_t)reg, FALSE, bufp, len);
 }
 
-bool RP_I2C_WaitForEvent(I2C_TypeDef* I2Cx, I2C_Event_TypeDef I2C_Event){
+bool RP_I2C_WaitForEvent(I2C_Event_TypeDef I2C_Event){
   I2C_Timeout= RP_I2C_TIMEOUT_MAX;
-  while(!I2C_CheckEvent(I2Cx, I2C_Event) && --I2C_Timeout)
+  while(!I2C_CheckEvent(RP_I2C, I2C_Event) && --I2C_Timeout)
   {}
   return (bool)(I2C_Timeout == 0);
 }
 
-bool RP_I2C_WaitWhileFlag(I2C_TypeDef* I2Cx, I2C_FLAG_TypeDef I2C_Flag, bool flagState){
+bool RP_I2C_WaitWhileFlag(I2C_FLAG_TypeDef I2C_Flag, bool flagState){
   I2C_Timeout = RP_I2C_TIMEOUT_MAX;
-  while(((bool)I2C_GetFlagStatus(I2Cx, I2C_Flag) == flagState) && --I2C_Timeout)
+  while(((bool)I2C_GetFlagStatus(RP_I2C, I2C_Flag) == flagState) && --I2C_Timeout)
   {}
   return (bool)(I2C_Timeout == 0);
 }
@@ -824,7 +829,7 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   if(Length == 0) return RP_I2C_FAILURE;
   
   /*!< While the bus is busy */
-  if(RP_I2C_WaitWhileFlag(RP_I2C, I2C_FLAG_BUSY, TRUE) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitWhileFlag(I2C_FLAG_BUSY, TRUE) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   
@@ -832,7 +837,7 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   I2C_GenerateSTART(RP_I2C, ENABLE);
   
   /*!< Test on EV5 and clear it */
-  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_MODE_SELECT) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_MODE_SELECT) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   
@@ -840,7 +845,7 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   I2C_Send7bitAddress(RP_I2C, SlaveAddr, I2C_Direction_Transmitter);
   
   /*!< Test on EV6 and clear it */
-  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   
@@ -849,7 +854,7 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
     I2C_SendData(RP_I2C, (uint8_t)((ReadAddr & 0xFF00) >> 8));
     
     /*!< Test on EV8 and clear it */
-    if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_TRANSMITTED) != RP_I2C_SUCCESS){
+    if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != RP_I2C_SUCCESS){
       return RP_I2C_FAILURE;
     }
   }
@@ -859,7 +864,7 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   
   
   /*!< Test on EV8 and clear it */
-  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_TRANSMITTED) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   
@@ -867,7 +872,7 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   I2C_GenerateSTART(RP_I2C, ENABLE);
   
   /*!< Test on EV5 and clear it */
-  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_MODE_SELECT) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_MODE_SELECT) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   
@@ -882,14 +887,14 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   */
   
   /*!< Test on EV6 and clear it */
-  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   /*!< Receive bytes until 3 are left */
   while(Length > 3)
   {
     /*!< Test on EV7 and clear it */
-    if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_RECEIVED) != RP_I2C_SUCCESS){
+    if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_BYTE_RECEIVED) != RP_I2C_SUCCESS){
       return RP_I2C_FAILURE;
     }
     
@@ -900,7 +905,7 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   
   //Receive Data N-2
   /*!< Test on EV7 and clear it */
-  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_RECEIVED) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_BYTE_RECEIVED) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   
@@ -909,7 +914,7 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   
   //Receive Data N-1
   /*!< Wait for both data and shift registers to fill */
-  if(RP_I2C_WaitWhileFlag(RP_I2C, I2C_FLAG_BTF, FALSE) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitWhileFlag(I2C_FLAG_BTF, FALSE) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   
@@ -923,7 +928,7 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   
   //Receive Data N
   /*!< Test on EV7 and clear it */
-  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_RECEIVED) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_BYTE_RECEIVED) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   
@@ -938,7 +943,7 @@ bool RP_I2C_GenericRead(uint8_t SlaveAddr, uint16_t ReadAddr, bool ReadAddrIs2By
   } else I2C_ReceiveData(RP_I2C);
   
   /*!< Wait for shift register to populate data register */
-  if(RP_I2C_WaitWhileFlag(RP_I2C, I2C_FLAG_RXNE, FALSE) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitWhileFlag(I2C_FLAG_RXNE, FALSE) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   
@@ -1026,7 +1031,7 @@ void RP_I2C_GenericWriteByte(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAd
 bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs2Bytes, uint8_t* pBuffer, uint16_t Length)
 {    
   /*!< While the bus is busy */
-  if(RP_I2C_WaitWhileFlag(RP_I2C, I2C_FLAG_BUSY, TRUE) != RP_I2C_SUCCESS){
+  if(RP_I2C_WaitWhileFlag(I2C_FLAG_BUSY, TRUE) != RP_I2C_SUCCESS){
     return RP_I2C_FAILURE;
   }
   
@@ -1034,14 +1039,14 @@ bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs
   I2C_GenerateSTART(RP_I2C, ENABLE);
   
   /*!< Test on EV5 and clear it */
-  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_MODE_SELECT) != RP_I2C_SUCCESS)
+  if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_MODE_SELECT) != RP_I2C_SUCCESS)
     return RP_I2C_FAILURE;
   
   /*!< Send slave address for write */
   I2C_Send7bitAddress(RP_I2C, SlaveAddr, I2C_Direction_Transmitter);
   
   /*!< Test on EV6 and clear it */
-  if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED) != RP_I2C_SUCCESS)
+  if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED) != RP_I2C_SUCCESS)
     return RP_I2C_FAILURE;
   
   if(WriteAddrIs2Bytes){
@@ -1049,7 +1054,7 @@ bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs
     I2C_SendData(RP_I2C, (uint8_t)((WriteAddr & 0xFF00) >> 8));
     
     /*!< Test on EV8 and clear it */
-    if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_TRANSMITTED) != RP_I2C_SUCCESS)
+    if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != RP_I2C_SUCCESS)
       return RP_I2C_FAILURE;
   }
   
@@ -1059,7 +1064,7 @@ bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs
   while(Length)
   {
     /*!< Test on EV8 and clear it */
-    if(RP_I2C_WaitForEvent(RP_I2C, I2C_EVENT_MASTER_BYTE_TRANSMITTED) != RP_I2C_SUCCESS)
+    if(RP_I2C_WaitForEvent(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != RP_I2C_SUCCESS)
       return RP_I2C_FAILURE;
     
     /*!< Send the byte to be written */
@@ -1071,19 +1076,6 @@ bool RP_I2C_GenericWrite(uint8_t SlaveAddr, uint16_t WriteAddr, bool WriteAddrIs
   I2C_GenerateSTOP(RP_I2C, ENABLE);
   
   return RP_I2C_SUCCESS;
-}
-
-/**
-* @brief  Writes one byte to the I2C EEPROM.
-* @param  pBuffer : pointer to the buffer  containing the data to be written
-*         to the EEPROM.
-* @param  WriteAddr : EEPROM's internal address to write to.
-* @retval None
-*/
-void RP_EE_WriteByte(uint32_t WriteAddr, uint8_t Buffer)
-{
-  eeAddress = EE_ADDRESS(WriteAddr);
-  RP_I2C_GenericWriteByte(eeAddress, (uint16_t)WriteAddr, TRUE, Buffer);
 }
 
 /**
@@ -1109,6 +1101,7 @@ void RP_EE_WriteByte(uint32_t WriteAddr, uint8_t Buffer)
 bool RP_EE_ReadBuffer(uint32_t ReadAddr, uint8_t* pBuffer, uint16_t Length)
 {
   eeAddress = EE_ADDRESS(ReadAddr);
+  if(Length == 0 || RP_EE_WaitForStandby() != RP_I2C_SUCCESS) return RP_I2C_FAILURE;
   return RP_I2C_GenericRead(eeAddress, (uint16_t)ReadAddr, TRUE, pBuffer, Length);
 }
 
@@ -1138,6 +1131,42 @@ inline void RP_EE_WritePage(uint8_t* pBuffer, uint16_t WriteAddr, volatile uint8
 RP_I2C_GenericWrite(eeAddress, WriteAddr, TRUE, pBuffer, pLength);
 }
 */
+
+bool RP_EE_WriteBuffer_Delayed(uint8_t* pBuffer, uint16_t Length){
+  if(Length == 0) return RP_I2C_FAILURE;
+  else if(Length <= EE_PAGESIZE - EE_PageBuffer_ind){
+    /* Add to page buffer*/
+    memcpy(&EE_PageBuffer[EE_PageBuffer_ind], pBuffer, Length);
+    EE_PageBuffer_ind += Length;
+  } else {
+    uint16_t remainder = Length - (EE_PAGESIZE - EE_PageBuffer_ind); //what won't fit on this page
+    
+    /* Add what fits to page buffer*/
+    memcpy(&EE_PageBuffer[EE_PageBuffer_ind], pBuffer, Length - remainder);
+    EE_PageBuffer_ind   += Length - remainder;
+    pBuffer             += Length - remainder;
+    
+    /* Flush page buffer to EE*/
+    if(RP_EE_Flush()!= RP_I2C_SUCCESS) return RP_I2C_FAILURE;
+    
+    /* Add rest to page buffer*/
+    memcpy(&EE_PageBuffer[EE_PageBuffer_ind], pBuffer, remainder);
+    EE_PageBuffer_ind += remainder;
+  }
+  return RP_I2C_SUCCESS;
+}
+
+bool RP_EE_Flush(void){
+  if(EE_PageBuffer_ind != EE_PAGESIZE){
+    memset(&EE_PageBuffer[EE_PageBuffer_ind], EE_FILLER_DATA_BYTE, EE_PAGESIZE - EE_PageBuffer_ind);
+  }
+  
+  if(RP_EE_WriteBuffer(EE_PageBuffer_Address, EE_PageBuffer, EE_PAGESIZE) != RP_I2C_SUCCESS) return RP_I2C_FAILURE;
+  EE_PageBuffer_ind = 0;
+  EE_PageBuffer_Address += EE_PAGESIZE;
+  return RP_I2C_SUCCESS;
+}
+
 /**
 * @brief  Writes buffer of data to the I2C EEPROM.
 * @param  pBuffer : pointer to the buffer  containing the data to be written
@@ -1166,6 +1195,7 @@ bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint16_t Length)
   /*!< If Length >= PageRemaining */
   else{
     // Write until the end of this page
+  if(RP_EE_WaitForStandby() != RP_I2C_SUCCESS) return RP_I2C_FAILURE;
     RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, PageRemaining);
     
     // Update pointers, now page aligned
@@ -1181,6 +1211,7 @@ bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint16_t Length)
     // Transfer any remaining pages (could be zero, if Length == PageRemaining)
     while (NumOfPage--)
     {
+  if(RP_EE_WaitForStandby() != RP_I2C_SUCCESS) return RP_I2C_FAILURE;
       RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, EE_PAGESIZE);
       
       /* Move the pointers forward */
@@ -1192,9 +1223,36 @@ bool RP_EE_WriteBuffer(uint32_t WriteAddr, uint8_t* pBuffer, uint16_t Length)
     //Transfer any remaining single bytes
     if (NumOfSingle != 0)
     {
+  if(RP_EE_WaitForStandby() != RP_I2C_SUCCESS) return RP_I2C_FAILURE;
       RP_EE_WritePage(pBuffer, (uint16_t)WriteAddr, NumOfSingle);
     }
   }
+  return RP_I2C_SUCCESS;
+}
+
+bool RP_EE_WaitForStandby(void){
+  uint8_t retries = EE_STANDBY_TIMEOUT;
+  do
+  {
+    /*!< Send START condition */
+    I2C_GenerateSTART(RP_I2C, ENABLE);
+
+    /* Test on EEPROM_I2C EV5 and clear it */
+    if(RP_I2C_WaitWhileFlag(I2C_FLAG_SB, FALSE) != RP_I2C_SUCCESS)
+      return RP_I2C_FAILURE;
+
+    /*!< Send EEPROM address for write */
+    I2C_Send7bitAddress(RP_I2C, eeAddress, I2C_Direction_Transmitter);
+
+  }
+  while(RP_I2C_WaitWhileFlag(I2C_FLAG_ADDR,FALSE) == RP_I2C_FAILURE && retries--); // Retry if timeout while waiting for address ack
+
+  /*!< Clear AF flag */
+  I2C_ClearFlag(RP_I2C, I2C_FLAG_AF);
+
+  /*!< STOP condition */
+  I2C_GenerateSTOP(RP_I2C, ENABLE);  
+  
   return RP_I2C_SUCCESS;
 }
 
