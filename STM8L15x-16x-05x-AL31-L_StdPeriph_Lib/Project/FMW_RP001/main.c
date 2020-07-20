@@ -6,6 +6,8 @@
 #include "stm8_eval_i2c_ee.h"
 
 
+#define SOFT_RESET do{WWDG->CR = 0x80;}while(0);
+
 /* Private define ------------------------------------------------------------*/
 //#define ENABLE_GPIO
 //#define ENABLE_ADC
@@ -24,6 +26,8 @@
 #define DATAPOINT_SIZE  18
 #define METADATA_SIZE   4
 #define EEPROM_SIZE ((uint32_t)(1)<<18)
+
+#define RETRIES 2 // i.e. total attempts
 
 /* Private macro -------------------------------------------------------------*/
 #define DATAPOINT_HANDLE(dp, field) ((uint8_t *)(dp.fmt.field))
@@ -61,7 +65,9 @@ volatile uint16_t ReadLength = 0;
 static uint8_t ReadBuffer[READ_BUFFER_SIZE];
 #endif // EEPROM_TEST
 
-static lsm9ds1_status_t status;
+#ifndef ENABLE_TIM2
+static lsm9ds1_status_t status; //only check the status register if we are not using the timer to generate timing info
+#endif
 datapoint_t datapoint;
 
 stmdev_ctx_t dev_ctx_mag;
@@ -109,7 +115,7 @@ void main(void)
   TIM2_Config();
   bool state = FALSE;
   
-  // Toggle SCL to free bus
+  // Toggle SCL at timer frequency
   GPIO_Init(GPIOC, GPIO_Pin_1, GPIO_Mode_Out_OD_HiZ_Slow); //PC1 - SCL
   while(1){
     if(TIM2_GetFlagStatus(TIM2_FLAG_Update)){
@@ -125,18 +131,17 @@ void main(void)
   GPIO_Init(GPIOC, GPIO_Pin_1, GPIO_Mode_Out_OD_HiZ_Slow); //PC1 - SCL
   
   for(int j = 0; j < 10; j++){
-    GPIO_WriteBit(GPIOC, GPIO_Pin_1, 0);
+    GPIO_WriteBit(GPIOC, GPIO_Pin_1, RESET);
     for(int i = 0; i < 100; i++){
     }
-    GPIO_WriteBit(GPIOC, GPIO_Pin_1, 1);
+    GPIO_WriteBit(GPIOC, GPIO_Pin_1, SET);
     for(int i = 0; i < 100; i++){
     }
   }
   GPIO_DeInit(GPIOC);
   
-  
   if(RP_I2C_Init() == RP_I2C_FAILURE){
-    while(1);    
+    SOFT_RESET
   }
   
 #ifdef ENABLE_TIM2
@@ -185,6 +190,8 @@ void main(void)
 #ifdef POWER_ON_DELAY_S
   uint32_t delay_ticks = (POWER_ON_DELAY_S * 1000L) / DATA_PERIOD_MS;
 #endif
+  
+  uint8_t retries;
   /* Infinite loop */
   while (1)
   {
@@ -205,13 +212,23 @@ void main(void)
     if ( status.status_imu.xlda && status.status_imu.gda && status.status_mag.yda && status.status_mag.zda){
 #endif
   
-      /* Read data */      
-      lsm9ds1_acceleration_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,acc));
-      lsm9ds1_angular_rate_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,ang));
-      lsm9ds1_magnetic_raw_get(&dev_ctx_mag, DATAPOINT_HANDLE(datapoint,mag));
+      /* Read data */    
+      retries = RETRIES;  
+      while(lsm9ds1_acceleration_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,acc)) && --retries);
+      if(!retries) SOFT_RESET;
+      
+      retries = RETRIES;
+      while(lsm9ds1_angular_rate_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,ang)) && --retries);
+      if(!retries) SOFT_RESET;
+      
+      retries = RETRIES;
+      while(lsm9ds1_magnetic_raw_get(&dev_ctx_mag, DATAPOINT_HANDLE(datapoint,mag)) && --retries);
+      if(!retries) SOFT_RESET;
       
       /* Store data */
-      RP_EE_WriteBuffer_Delayed(datapoint.bytes, DATAPOINT_SIZE);   
+      retries = RETRIES;
+      while(RP_EE_WriteBuffer_Delayed(datapoint.bytes, DATAPOINT_SIZE) && --retries);
+      if(!retries) SOFT_RESET;
       
       /* Stop if there is space for one datapoint or less */
       if((EE_PageBuffer_Address + EE_PageBuffer_ind) >= (EEPROM_SIZE - DATAPOINT_SIZE))

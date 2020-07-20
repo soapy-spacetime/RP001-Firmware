@@ -189,6 +189,14 @@ bool RP_I2C_Init(void)
   dev_ctx_imu.write_reg = platform_write;
   dev_ctx_imu.read_reg = platform_read;
   dev_ctx_imu.handle = (void*)&imuAddress;
+    
+  /* Restore default configuration - set reset bit, wait for it to be cleared*/
+  uint8_t rst;
+  if(lsm9ds1_dev_reset_set(&dev_ctx_mag, &dev_ctx_imu, PROPERTY_ENABLE) != RP_I2C_SUCCESS)
+    return RP_I2C_FAILURE;
+  do {
+    lsm9ds1_dev_reset_get(&dev_ctx_mag, &dev_ctx_imu, &rst);
+  } while (rst);
   
   /* Check device ID */
   if(lsm9ds1_dev_id_get(&dev_ctx_mag, &dev_ctx_imu, &whoamI) != RP_I2C_SUCCESS){
@@ -199,17 +207,7 @@ bool RP_I2C_Init(void)
                  ){
                    return RP_I2C_FAILURE;
                  }
-  
-  /* Restore default configuration */
-  uint8_t rst;
-  lsm9ds1_dev_reset_set(&dev_ctx_mag, &dev_ctx_imu, PROPERTY_ENABLE);
-  do {
-    lsm9ds1_dev_reset_get(&dev_ctx_mag, &dev_ctx_imu, &rst);
-  } while (rst);
-  
-  /* Enable Block Data Update */
-  lsm9ds1_block_data_update_set(&dev_ctx_mag, &dev_ctx_imu, PROPERTY_ENABLE);
-  
+      
   /* Set full scale */
   lsm9ds1_xl_full_scale_set(&dev_ctx_imu, RP_ACC_FULL_SCALE);
   lsm9ds1_gy_full_scale_set(&dev_ctx_imu, RP_GYR_FULL_SCALE);
@@ -230,6 +228,9 @@ bool RP_I2C_Init(void)
   lsm9ds1_imu_data_rate_set(&dev_ctx_imu, LSM9DS1_IMU_238Hz);           // sets Gyro LPF1 BW to 76Hz
   lsm9ds1_mag_data_rate_set(&dev_ctx_mag, LSM9DS1_MAG_UHP_155Hz);       // no filtering on Magnetometer
   lsm9ds1_filter_settling_mask_set(&dev_ctx_imu, TRUE);                 // make data ready flag wait for filters to settle 
+  
+  /* Enable Block Data Update */
+  lsm9ds1_block_data_update_set(&dev_ctx_mag, &dev_ctx_imu, PROPERTY_ENABLE);
   
   return RP_I2C_SUCCESS;
 }
