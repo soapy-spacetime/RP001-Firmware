@@ -28,7 +28,6 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm8l15x_it.h"
-#include "RP_I2C.h"
 
 /** @addtogroup STM8L15x_StdPeriph_Template
   * @{

@@ -1,53 +1,11 @@
 /* Includes ------------------------------------------------------------------*/
-#include "stm8l15x.h"
-#include "string.h"
-#include "RP_i2c.h"
-
-#include "stm8_eval_i2c_ee.h"
-
+#include "main.h"
 
 /* Private define ------------------------------------------------------------*/
-//#define ENABLE_GPIO
-//#define ENABLE_ADC
-#define ENABLE_TIM2
-//#define EEPROM_TEST
-//#define TIME_TEST
-
-//#define DATA_LIMIT 10
-
-#define DATA_FREQUENCY_HZ 100 // up to 150
-#define DATA_PERIOD_MS (1000 / DATA_FREQUENCY_HZ)
-#define DATA_TIME_FMT(ms) 1 //Just increment the time field for each data point - use the metadata to know how much time has passed
-#define TIM2_PERIOD ((16000000 / 128 / DATA_FREQUENCY_HZ) - 1)
-
-#define DATAPOINT_SIZE  18
-#define METADATA_SIZE   4
-#define EEPROM_SIZE ((uint32_t)(1)<<18)
 
 /* Private macro -------------------------------------------------------------*/
-#define DATAPOINT_HANDLE(dp, field) ((uint8_t *)(dp.fmt.field))
-#define max(a,b) ((a) > (b) ? (a) : (b))
-#define min(a,b) ((a) < (b) ? (a) : (b))
-     
-/* Private typedef -----------------------------------------------------------*/
-typedef union{
-  uint8_t bytes[DATAPOINT_SIZE];
-  struct {
-    int16_t acc[3];
-    int16_t ang[3];
-    int16_t mag[3];
-  } fmt;
-}datapoint_t;
 
-typedef union{
-  uint8_t bytes[METADATA_SIZE];
-  struct{
-    uint8_t sampleFrequency;
-    lsm9ds1_xl_fs_t accFullScale;
-    lsm9ds1_gy_fs_t gyrFullScale;
-    lsm9ds1_mag_fs_t magFullScale;
-  }fmt;
-}metadata_t;
+/* Private typedef -----------------------------------------------------------*/
 
 /* Private variables ---------------------------------------------------------*/
 #ifdef EEPROM_TEST
@@ -60,11 +18,11 @@ volatile uint16_t ReadLength = 0;
 static uint8_t ReadBuffer[READ_BUFFER_SIZE];
 #endif // EEPROM_TEST
 
-static lsm9ds1_status_t status;
+// static lsm9ds1_status_t status;
 datapoint_t datapoint;
 
-stmdev_ctx_t dev_ctx_mag;
-stmdev_ctx_t dev_ctx_imu;
+// stmdev_ctx_t dev_ctx_mag;
+// stmdev_ctx_t dev_ctx_imu;
 
 /* Private function prototypes -----------------------------------------------*/
 #ifdef ENABLE_TIM2
@@ -94,6 +52,20 @@ void callback_DRDY_M(void);
 */
 void main(void)
 {
+  //Test that code is actually running
+  
+  // Toggle SCL to free bus
+  GPIO_Init(GPIOC, GPIO_Pin_1, GPIO_Mode_Out_OD_HiZ_Slow); //PC1 - SCL
+  
+  while(1){
+    GPIO_WriteBit(GPIOC, GPIO_Pin_1, 0);
+    for(int i = 0; i < 100; i++){
+    }
+    GPIO_WriteBit(GPIOC, GPIO_Pin_1, 1);
+    for(int i = 0; i < 100; i++){
+    }
+  }
+
   /* ----- Initialize System Clocks ----- */
   /* Select HSI (16MHz) as system clock source */
   CLK_SYSCLKSourceSwitchCmd(ENABLE);
@@ -134,9 +106,9 @@ void main(void)
   GPIO_DeInit(GPIOC);
   
   
-  if(RP_I2C_Init() == RP_I2C_FAILURE){
-    while(1);    
-  }
+  // if(RP_I2C_Init() == RP_I2C_FAILURE){
+  //   while(1);    
+  // }
   
 #ifdef ENABLE_TIM2
   TIM2_Config();
@@ -153,10 +125,10 @@ void main(void)
   
   metadata_t meta;
   meta.fmt.sampleFrequency = DATA_FREQUENCY_HZ;
-  meta.fmt.accFullScale = RP_ACC_FULL_SCALE;
-  meta.fmt.gyrFullScale = RP_GYR_FULL_SCALE;
-  meta.fmt.magFullScale = RP_MAG_FULL_SCALE;
-  RP_EE_WriteBuffer_Delayed(meta.bytes, METADATA_SIZE);   
+  // meta.fmt.accFullScale = RP_ACC_FULL_SCALE;
+  // meta.fmt.gyrFullScale = RP_GYR_FULL_SCALE;
+  // meta.fmt.magFullScale = RP_MAG_FULL_SCALE;
+  // RP_EE_WriteBuffer_Delayed(meta.bytes, METADATA_SIZE);   
   
   
 #ifdef EEPROM_TEST
@@ -195,16 +167,16 @@ void main(void)
     if ( status.status_imu.xlda && status.status_imu.gda && status.status_mag.yda && status.status_mag.zda){
 #endif
   
-      /* Read data */      
-      lsm9ds1_acceleration_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,acc));
-      lsm9ds1_angular_rate_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,ang));
-      lsm9ds1_magnetic_raw_get(&dev_ctx_mag, DATAPOINT_HANDLE(datapoint,mag));
+      // /* Read data */      
+      // lsm9ds1_acceleration_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,acc));
+      // lsm9ds1_angular_rate_raw_get(&dev_ctx_imu, DATAPOINT_HANDLE(datapoint,ang));
+      // lsm9ds1_magnetic_raw_get(&dev_ctx_mag, DATAPOINT_HANDLE(datapoint,mag));
       
-      /* Store data */
-      RP_EE_WriteBuffer_Delayed(datapoint.bytes, DATAPOINT_SIZE);   
+      // /* Store data */
+      // RP_EE_WriteBuffer_Delayed(datapoint.bytes, DATAPOINT_SIZE);   
       
       /* Stop if there is space for one datapoint or less */
-      if((EE_PageBuffer_Address + EE_PageBuffer_ind) >= (EEPROM_SIZE - DATAPOINT_SIZE))
+      // if((EE_PageBuffer_Address + EE_PageBuffer_ind) >= (EEPROM_SIZE - DATAPOINT_SIZE))
         break;
       
 #ifdef DATA_LIMIT
@@ -215,10 +187,10 @@ void main(void)
   } 
   /*End Infinite loop */
   
-  RP_EE_Flush();
+  // RP_EE_Flush();
   
   //Stop
-  RP_I2C_DeInit();
+  // RP_I2C_DeInit();
   while(1);
 }
 
@@ -245,7 +217,7 @@ void TIM2_Config(void)
   TIM2_OC1Init(TIM2_OCMode_Active, TIM2_OutputState_Enable, 0, TIM2_OCPolarity_High, TIM2_OCIdleState_Reset);
 
   
-//  TIM2_ITConfig(TIM2_IT_Update, ENABLE);
+  TIM2_ITConfig(TIM2_IT_Update, ENABLE);
   
   /* TIM2 counter enable */
   TIM2_Cmd(ENABLE);
