@@ -69,6 +69,7 @@ static uint8_t ReadBuffer[READ_BUFFER_SIZE];
 static lsm9ds1_status_t status; //only check the status register if we are not using the timer to generate timing info
 #endif
 datapoint_t datapoint;
+uint8_t retries = RETRIES;
 
 stmdev_ctx_t dev_ctx_mag;
 stmdev_ctx_t dev_ctx_imu;
@@ -99,6 +100,7 @@ void callback_DRDY_M(void);
 * @param  None
 * @retval None
 */
+
 void main(void)
 {
   /* ----- Initialize System Clocks ----- */
@@ -191,7 +193,6 @@ void main(void)
   uint32_t delay_ticks = (POWER_ON_DELAY_S * 1000L) / DATA_PERIOD_MS;
 #endif
   
-  uint8_t retries;
   /* Infinite loop */
   while (1)
   {

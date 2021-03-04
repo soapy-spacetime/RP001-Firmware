@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <settings>
     <DebugChecksum>
-        <Checksum>1563388042</Checksum>
+        <Checksum>2255099619</Checksum>
     </DebugChecksum>
     <Stack>
         <FillEnabled>0</FillEnabled>
@@ -35,10 +35,9 @@
         <Category>_ 0</Category>
     </LogFile>
     <Breakpoints>
-        <Bp0>_ "STD_CODE" "{$PROJ_DIR$\..\main.c}.0.1" 0 0 0 0 "" 0 ""</Bp0>
-        <Bp1>_ "STD_CODE" "{$PROJ_DIR$\..\main.c}.0.1" 0 0 0 0 "" 0 ""</Bp1>
-        <Bp2>_ "STD_CODE" "{$PROJ_DIR$\..\main.c}.0.1" 0 0 0 0 "" 0 ""</Bp2>
-        <Count>3</Count>
+        <Bp0>_ "STD_CODE" "{$PROJ_DIR$\..\main.c}.360.1" 0 0 0 0 "" 0 ""</Bp0>
+        <Bp1>_ "STD_CODE" "{$PROJ_DIR$\..\main.c}.360.1" 0 0 0 0 "" 0 ""</Bp1>
+        <Count>2</Count>
     </Breakpoints>
     <Aliases>
         <Count>0</Count>
