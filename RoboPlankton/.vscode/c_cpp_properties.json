@@ -1,0 +1,52 @@
+//
+// !!! WARNING !!! AUTO-GENERATED FILE!
+// PLEASE DO NOT MODIFY IT AND USE "platformio.ini":
+// https://docs.platformio.org/page/projectconf/section_env_build.html#build-flags
+//
+{
+    "configurations": [
+        {
+            "name": "PlatformIO",
+            "includePath": [
+                "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/include",
+                "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/src",
+                "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/lib/STM8L15x_StdPeriph_Driver/src",
+                "C:/Users/Umberto/.platformio/packages/toolchain-sdcc/include",
+                "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/lib/STM8L15x_StdPeriph_Driver",
+                "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/lib/STM8L15x_StdPeriph_Driver/inc",
+                "C:/Users/Umberto/.platformio/packages/framework-ststm8spl/Libraries/STM8S_StdPeriph_Driver/inc",
+                "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/lib/STM8L15x-16x-05x-AL31-L_StdPeriph_Lib",
+                ""
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "path": [
+                    "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/include",
+                    "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/src",
+                    "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/lib/STM8L15x_StdPeriph_Driver/src",
+                    "C:/Users/Umberto/.platformio/packages/toolchain-sdcc/include",
+                    "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/lib/STM8L15x_StdPeriph_Driver",
+                    "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/lib/STM8L15x_StdPeriph_Driver/inc",
+                    "C:/Users/Umberto/.platformio/packages/framework-ststm8spl/Libraries/STM8S_StdPeriph_Driver/inc",
+                    "c:/Users/Umberto/Google Drive/Personal/Projects/Robotic Plankton/RP001/Firmware/RoboPlankton/lib/STM8L15x-16x-05x-AL31-L_StdPeriph_Lib",
+                    ""
+                ]
+            },
+            "defines": [
+                "F_CPU=16000000L",
+                "PLATFORMIO=50100",
+                "STM8L151",
+                "STM8L15X_MD",
+                "USE_STDPERIPH_DRIVER",
+                "USE_STDINT",
+                ""
+            ],
+            "compilerPath": "C:/Users/Umberto/.platformio/packages/toolchain-sdcc/bin/sdcc.exe",
+            "compilerArgs": [
+                "-mstm8",
+                ""
+            ]
+        }
+    ],
+    "version": 4
+}
